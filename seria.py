@@ -3,7 +3,7 @@ import logging.config
 import re
 
 __author__ = 'Max'
-__version__ = '0.1.0'
+__version__ = '0.2.0'
 
 ATTRIBUTE_PATTERN = r'([a-zA-Z][0-9a-zA-Z.:_]*)'
 VALUE_PATTERN = r'(.*)'

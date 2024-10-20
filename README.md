@@ -1,5 +1,7 @@
 # HighFleet-SeriaView
 
+[中文](README.zh-cn.md)
+
 A parser that aims to visualize the structure of a seria file for the game HighFleet. It also aims to provide a GUI-based program that allows easy edit of seria attributes and add nodes into the file.
 
 - [Guides](/docs/)  
