@@ -1,0 +1,32 @@
+name: Auto Release GUI
+
+on:
+    push:
+        tags:
+            - 'gui-*'
+
+jobs:
+    build:
+        name: "Build windows"
+        runs-on: windows-latest
+        steps:
+            - name: "Checkout"
+              uses: actions/checkout@v4.2.1
+              with:
+                submodules: true
+            - name: "Install python requirements"
+              run: pip install -r requirements.txt
+            - name: "Build"
+              run: python setup.py
+            - name: "Zip dist"
+              uses: TheDoctor0/zip-release@0.7.6
+              with:
+                type: 'zip'
+                filename: 'release.zip'
+                directory: 'dist/'
+            - name: "Create release"
+              uses: softprops/action-gh-release@v2.0.8
+              with:
+                draft: true
+                files: |
+                    dist/release.zip
