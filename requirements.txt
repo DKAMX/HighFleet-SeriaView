@@ -1,3 +1,0 @@
-cachetools==5.5.0
-pefile==2024.8.26
-py2exe==0.13.0.2
