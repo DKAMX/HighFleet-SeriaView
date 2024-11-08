@@ -121,9 +121,10 @@ class NpcModel:
         self.seria = seria
         self.name = seria.get_attribute('m_name')
         self.fullname = seria.get_attribute('m_fullname')
-        self.joined = bool(int(seria.get_attribute('m_joined')))
+        # assume NPC is tarkhan thus don't store m_tarkhan
+        self.joined = bool(seria.get_attribute('m_joined')) or False
         self.location = seria.get_attribute('m_location')
-        self.loyalty = int(seria.get_attribute('m_loyalty'))
+        self.loyalty = int(seria.get_attribute('m_loyalty')) or 0
 
     def set_loyalty(self, loyalty: int):
         if loyalty < 1 or loyalty > 12:
