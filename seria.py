@@ -1,9 +1,8 @@
 import logging
-import logging.config
 import re
 
 __author__ = 'Max'
-__version__ = '0.2.0'
+__version__ = '0.2.1'
 
 ATTRIBUTE_PATTERN = r'([a-zA-Z][0-9a-zA-Z.:_]*)'
 VALUE_PATTERN = r'(.*)'
@@ -75,8 +74,7 @@ class SeriaNode:
 
     def _add_child(self, node):
         if not isinstance(node, SeriaNode):
-            logging.error('Child must be a SeriaNode')
-            return
+            raise TypeError('Child must be a SeriaNode')
         self.data_group.append(node)
 
     # attribute read operations
@@ -148,6 +146,8 @@ class SeriaNode:
         This is different from set_attribute, which only update existing attribute.'''
 
         old_value = self.get_attribute(name)
+        if old_value is None or old_value == value:
+            return
 
         for group in self.data_group:
             if isinstance(group, alist):
@@ -176,6 +176,10 @@ class SeriaNode:
         @param value: the value of the attribute to add.
         @param before: the name of the attribute before which the new attribute will be added.'''
 
+        if self.has_attribute(name):
+            self.set_attribute(name, value)
+            return
+
         for group in self.data_group:
             if isinstance(group, alist):
                 if before in group.keys():
@@ -189,6 +193,10 @@ class SeriaNode:
         @param name: the name of the attribute to add.
         @param value: the value of the attribute to add.
         @param after: the name of the attribute after which the new attribute will be added.'''
+
+        if self.has_attribute(name):
+            self.set_attribute(name, value)
+            return
 
         for group in self.data_group:
             if isinstance(group, alist):
@@ -284,6 +292,11 @@ class SeriaNode:
         '''Add a child node after another child node by index.'''
 
         self.put_node_after(node, self.get_node(index))
+
+    def del_node(self, node):
+        '''Delete a child node (by reference object) from the current node.'''
+
+        self.data_group.remove(node)
 
     # stream-like operations
 
