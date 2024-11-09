@@ -428,7 +428,7 @@ def load(filepath: str) -> SeriaNode:
             name, value = _match_attribute(line)
 
             if name == 'm_classname':
-                logger.info(f'new node: {value}')
+                logger.debug(f'new node: {value}')
 
                 node = SeriaNode(header_line, value)
 
