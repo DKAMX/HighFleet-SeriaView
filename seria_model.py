@@ -139,32 +139,44 @@ class NpcModel:
 
 
 class ProfileModel:
-    def __init__(self, seria: SeriaNode):
+    def __init__(self):
+        self.seria: SeriaNode = None
+        self.unique_ids: set = None
+        self.ship_unlocks: list = None
+        self.scores: int = 0
+        self.cash: int = 0
+        escadras: list = None
+        self.player_fleets: list = None
+        self.npcs: list = None
+        self.ammo_list: list = None
+
+    def load(self, seria: SeriaNode):
         self.seria = seria
         self.unique_ids = get_unique_ids(seria)
-
         self.ship_unlocks = get_ship_unlocks(seria)
-
         self.scores = int(seria.get_attribute('m_scores') or 0)
         self.cash = int(seria.get_attribute('m_cash') or 0)
-
         escadras = seria.get_nodes_by_class('Escadra')
         self.player_fleets = [FleetModel(fleet)
                               for fleet in escadras if fleet.get_attribute('m_alignment') == '1']
-
         self.npcs = [NpcModel(npc) for npc in seria.filter_nodes(lambda n: n.header == 'm_npcs=68719476739' and (
             n.has_attribute('m_tarkhan') or n.has_attribute('m_joined')))]
-
         self.ammo_list = [AmmoModel(ammo)
                           for ammo in seria.get_nodes_by_class('Item')]
 
     def get_ammo_list(self):
+        if self.ammo_list is None:
+            return []
+
         return [(ammo.type, ammo.amount) for ammo in self.ammo_list]
 
     def set_ammo(self, ammo_index: str, amount: int):
         '''Set the amount of ammo of a certain type.
         If the amount is 0, the ammo is removed.
         If the ammo does not exist, it is created.'''
+
+        if self.ammo_list is None:
+            return
 
         if amount < 0:
             raise ValueError('Amount must be a positive integer')
@@ -186,35 +198,65 @@ class ProfileModel:
             self.ammo_list.append(new_ammo)
             self.seria.put_node_before_index(new_ammo.seria, -1)
 
-    def set_bonus(self, bonus: int):
-        if bonus < 0:
-            raise ValueError('Bonus must be a positive integer')
-        if bonus == 0:
-            self.seria.remove_attribute('m_scores')
+    def get_bonus(self):
+        if self.seria is None:
+            return
+
+        return str(self.scores)
+
+    def set_bonus(self, bonus: str):
+        if self.seria is None:
+            return
+
+        try:
+            bonus_value = int(bonus)
+            if bonus_value < 0:
+                raise ValueError('Bonus must be a positive integer')
+        except ValueError:
+            return
+
+        # has_attribute check for first callback triggered in initialize the entry value
+        if bonus_value == 0 and self.seria.has_attribute('m_scores'):
+            self.seria.del_attribute('m_scores')
         else:
             if self.seria.has_attribute('m_scores'):
-                self.seria.put_attribute_after(
-                    'm_scores', str(bonus), 'm_savetime')
+                self.seria.set_attribute('m_scores', bonus)
             else:
-                self.seria.set_attribute('m_scores', str(bonus))
+                self.seria.put_attribute_after('m_scores', bonus, 'm_savetime')
 
         self.scores = bonus
 
-    def set_money(self, money: int):
-        if money < 0:
-            raise ValueError('Money must be a positive integer')
-        if money == 0:
+    def get_money(self):
+        if self.seria is None:
+            return
+
+        return str(self.cash)
+
+    def set_money(self, money: str):
+        if self.seria is None:
+            return
+
+        try:
+            money_value = int(money)
+            if money_value < 0:
+                raise ValueError('Money must be a positive integer')
+        except ValueError:
+            return
+
+        if money_value == 0 and self.seria.has_attribute('m_cash'):
             self.seria.remove_attribute('m_cash')
         else:
             if self.seria.has_attribute('m_cash'):
-                self.seria.put_attribute_before(
-                    'm_cash', str(money), 'm_npc_index')
+                self.seria.set_attribute('m_cash', money)
             else:
-                self.seria.set_attribute('m_cash', str(money))
+                self.seria.put_attribute_before('m_cash', money, 'm_npc_index')
 
         self.cash = money
 
     def unlock_all_ships(self):
+        if self.seria is None:
+            return
+
         for i, unlock in enumerate(self.ship_unlocks):
             self.ship_unlocks[i] = (unlock[0], True)
 
@@ -222,9 +264,15 @@ class ProfileModel:
             'm_unlocks', [f'{name}|{int(unlocked)}' for name, unlocked in self.ship_unlocks])
 
     def get_worldview(self, attribute: str):
+        if self.seria is None:
+            return
+
         return self.seria.get_attribute(f'm_char_{attribute}_val') or '0'
 
     def set_worldview(self, attribute: str, value: str):
+        if self.seria is None:
+            return
+
         name_value_disaplay = f'm_char_{attribute}'
         name_value = f'm_char_{attribute}_val'
         value_disaplay = str(int(float(value)))
