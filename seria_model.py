@@ -1,3 +1,4 @@
+from ast import literal_eval
 from enum import Enum
 from seria import SeriaNode
 
@@ -40,18 +41,21 @@ class AmmoModel:
         '''Create an AmmoModel from an existing SeriaNode'''
 
         self.seria = seria
-        self.type = Ammo.get_ammo_type(seria.get_attribute('m_type'))
+        self.type = Ammo.get_ammo_type(seria.get_attribute('m_index'))
         self.amount = int(seria.get_attribute('m_count'))
 
-    def __init__(self, ammo_index: str, amount: int):
-        '''Create an AmmoModel from scratch'''
+    @classmethod
+    def from_index(ammo_index: int, amount: int):
+        '''Create an AmmoModel from scratch
+        @return: AmmoModel'''
 
-        self.seria = SeriaNode(f'm_items={ITEM_AMMO_CODE}', 'Item')
-        self.seria.set_attribute('m_code', ITEM_AMMO_CODE)
-        self.seria.set_attribute('m_index', ammo_index)
-        self.seria.set_attribute('m_count', str(amount))
-        self.type = Ammo.get_ammo_type(ammo_index)
-        self.amount = amount
+        seria = SeriaNode(f'm_items={ITEM_AMMO_CODE}', 'Item')
+        seria.set_attribute('m_classname', 'Item')
+        seria.set_attribute('m_code', ITEM_AMMO_CODE)
+        seria.set_attribute('m_index', str(ammo_index))
+        seria.set_attribute('m_count', str(amount))
+
+        return AmmoModel(seria)
 
     def set_amount(self, amount: int):
         if amount <= 0:
@@ -88,12 +92,13 @@ class FleetModel:
         self.ships = seria.filter_nodes(
             lambda n: n.header == 'm_children=7')
 
-        total = int(self.seria.get_attribute('m_tele_fuel_total'))
-        capacity = int(self.seria.get_attribute('m_tele_fuel_capacity'))
+        total = literal_eval(self.seria.get_attribute('m_tele_fuel_total'))
+        capacity = literal_eval(
+            self.seria.get_attribute('m_tele_fuel_capacity'))
         self.fuel_pct = int(total / capacity * 100)
 
-        x = int(self.seria.get_attribute('m_position.x')) or 0
-        y = int(self.seria.get_attribute('m_position.y')) or 0
+        x = int(self.seria.get_attribute('m_position.x') or 0)
+        y = int(self.seria.get_attribute('m_position.y') or 0)
         self.position = (x, y)
 
     def add_fuel(self):
@@ -124,7 +129,7 @@ class NpcModel:
         # assume NPC is tarkhan thus don't store m_tarkhan
         self.joined = bool(seria.get_attribute('m_joined')) or False
         self.location = seria.get_attribute('m_location')
-        self.loyalty = int(seria.get_attribute('m_loyalty')) or 0
+        self.loyalty = int(seria.get_attribute('m_loyalty') or 0)
 
     def set_loyalty(self, loyalty: int):
         if loyalty < 1 or loyalty > 12:
@@ -140,8 +145,8 @@ class ProfileModel:
 
         self.ship_unlocks = get_ship_unlocks(seria)
 
-        self.scores = int(seria.get_attribute('m_scores')) or 0
-        self.cash = int(seria.get_attribute('m_cash')) or 0
+        self.scores = int(seria.get_attribute('m_scores') or 0)
+        self.cash = int(seria.get_attribute('m_cash') or 0)
 
         escadras = seria.get_nodes_by_class('Escadra')
         self.player_fleets = [FleetModel(fleet)
@@ -215,6 +220,22 @@ class ProfileModel:
 
         self.seria.set_attribute(
             'm_unlocks', [f'{name}|{int(unlocked)}' for name, unlocked in self.ship_unlocks])
+
+    def get_worldview(self, attribute: str):
+        return self.seria.get_attribute(f'm_char_{attribute}_val') or '0'
+
+    def set_worldview(self, attribute: str, value: str):
+        name_value_disaplay = f'm_char_{attribute}'
+        name_value = f'm_char_{attribute}_val'
+        value_disaplay = str(int(float(value)))
+        if self.seria.has_attribute(name_value_disaplay):
+            self.seria.set_attribute(name_value_disaplay, value_disaplay)
+            self.seria.set_attribute(name_value, value)
+        else:
+            self.seria.put_attribute_after(
+                name_value_disaplay, value, 'm_radio_duration_base')
+            self.seria.put_attribute_after(
+                name_value, value_disaplay, name_value_disaplay)
 
 
 def get_unique_ids(seria: SeriaNode) -> set:
