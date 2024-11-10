@@ -35,29 +35,37 @@ class Ammo(Enum):
                 return ammo.value[1]
         return f'Unknown {index}'
 
+    @classmethod
+    def get_ammo_index(cls, name: str) -> str:
+        for ammo in cls:
+            if ammo.value[1] == name:
+                return ammo.value[0]
+        return '0'
+
 
 class AmmoModel:
     def __init__(self, seria: SeriaNode):
         '''Create an AmmoModel from an existing SeriaNode'''
 
-        self.seria = seria
-        self.type = Ammo.get_ammo_type(seria.get_attribute('m_index'))
-        self.amount = int(seria.get_attribute('m_count'))
+        self.seria: SeriaNode = seria
+        self.index: str = seria.get_attribute('m_index')
+        self.count: str = seria.get_attribute('m_count')
 
     @classmethod
-    def from_index(ammo_index: int, amount: int):
+    def from_index(self, ammo_index: str, amount: str):
         '''Create an AmmoModel from scratch
         @return: AmmoModel'''
 
         seria = SeriaNode(f'm_items={ITEM_AMMO_CODE}', 'Item')
         seria.set_attribute('m_classname', 'Item')
         seria.set_attribute('m_code', ITEM_AMMO_CODE)
-        seria.set_attribute('m_index', str(ammo_index))
-        seria.set_attribute('m_count', str(amount))
+        seria.set_attribute('m_index', ammo_index)
+        seria.set_attribute('m_count', amount)
 
         return AmmoModel(seria)
 
     def set_amount(self, amount: int):
+        '''Ammo model itself don't handle 0 amount because it cannot remove itself'''
         if amount <= 0:
             raise ValueError('Amount must be a positive integer')
         else:
@@ -168,35 +176,37 @@ class ProfileModel:
         if self.ammo_list is None:
             return []
 
-        return [(ammo.type, ammo.amount) for ammo in self.ammo_list]
+        return [(Ammo.get_ammo_type(ammo.index), ammo.count) for ammo in self.ammo_list]
 
-    def set_ammo(self, ammo_index: str, amount: int):
+    def set_ammo(self, ammo_index: str, amount: str) -> bool:
         '''Set the amount of ammo of a certain type.
-        If the amount is 0, the ammo is removed.
-        If the ammo does not exist, it is created.'''
+        If the ammo does not exist, it is created.
+        @return: True if the operation was successful, False otherwise'''
 
         if self.ammo_list is None:
-            return
+            return False
 
-        if amount < 0:
-            raise ValueError('Amount must be a positive integer')
-        if amount == 0:
-            ammo_list = self.seria.get_nodes_by_class('Item')
-            for ammo in ammo_list:
-                if ammo.get_attribute('m_index') == ammo_index:
-                    self.seria.del_node(ammo.seria)
-                    return
-        else:
-            ammo_list = self.seria.get_nodes_by_class('Item')
-            for ammo in ammo_list:
-                # existing ammo
-                if ammo.get_attribute('m_index') == ammo_index:
-                    ammo.set_amount(str(amount))
-                    return
-            # new ammo
-            new_ammo = AmmoModel(ammo_index, amount)
-            self.ammo_list.append(new_ammo)
-            self.seria.put_node_before_index(new_ammo.seria, -1)
+        try:
+            amount_value = int(amount)
+
+            if amount_value <= 0:
+                return False
+            else:
+                for ammo in self.ammo_list:
+                    # existing ammo
+                    if ammo.index == ammo_index:
+                        ammo.set_amount(amount_value)
+                        return True
+
+                # new ammo
+                new_ammo = AmmoModel.from_index(
+                    ammo_index=ammo_index, amount=amount)
+                self.ammo_list.append(new_ammo)
+                self.seria.put_node_before_index(new_ammo.seria, -1)
+
+                return True
+        except ValueError:
+            return False
 
     def get_bonus(self):
         if self.seria is None:
