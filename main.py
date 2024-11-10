@@ -1,613 +1,484 @@
 import json
+import locale
+import logging
+import logging.config
 from tkinter import *
-from tkinter import filedialog, messagebox, scrolledtext, ttk
-import seria
+from tkinter import filedialog, messagebox, ttk
+from seria_model import Ammo, AmmoModel
+from view_controller import SeriaController
 
 __author__ = 'Max'
-__version__ = '0.2.1'
+__version__ = '0.3.0'
 
-_TIP_FILE = 'Open a file to view details'
-_TIP_NODE = 'Click on an item to view details'
-_CFG_PATH = 'config.json'
-_CFG_SET = ('gamepath', 'oid_text')
+_LOCALE_PATH = 'locale'
+_LOCALE_DEFAULT = 'en_US'
+
+_VIEWMODE_SETTINGS = 0
+_VIEWMODE_BASE = 1
+_VIEWMODE_MAP = 2
+_VIEWMODE_TREE = 3
 
 
-class SeriaController:
+# logging.basicConfig(level=logging.INFO)
+
+
+def singleton(cls):
+    instances = {}
+
+    def get_instance(*args, **kwargs):
+        if cls not in instances:
+            instances[cls] = cls(*args, **kwargs)
+        return instances[cls]
+
+    return get_instance
+
+
+@singleton
+class L10N:
     def __init__(self):
+        code, _ = locale.getdefaultlocale()
+        self.messages = self._load_locale(code)
+        self.messages_default = self._load_locale(_LOCALE_DEFAULT)
+
+    def _load_locale(self, code):
+        try:
+            with open(f'{_LOCALE_PATH}/{code}.json', encoding='utf-8') as file:
+                return json.load(file)
+        except FileNotFoundError:
+            return dict()
+
+    def text(self, key):
+        return self.messages.get(key, self.messages_default.get(key, key))
+
+
+class SeriaView:
+    def __init__(self):
+        self.logger = logging.getLogger('SeriaView')
+
+        self.controller: SeriaController = SeriaController()
+
         self.root = Tk()
         self.root.title(f'SeriaView v{__version__}')
         self.root.geometry('640x480')
         self.root.minsize(640, 480)
+        # self.root.resizable(False, False)
 
-        self.config: dict = dict()
-
-        # Data model
-        self.var_viewmode = IntVar(value=0)
-        self.seria: seria.SeriaNode = None
-        # reference to seria node, easy to modify
-        self.var_bonus: str = StringVar()
-        self.var_cash: str = StringVar()
-        self.squadron_nodes = list()
-        self.squadron_hold_nodes = list()
-        self.ammo_nodes = list()
-
-        # Base view
-        self.entry_cash: Entry = None
-        self.entry_bonus: Entry = None
-        self.frm_baseview: Frame = None
-        self.tree_squadron: ttk.Treeview = None
-        self.tree_hold: ttk.Treeview = None
+        # view related variable
+        self.frame_list = list()
         self.tree_ammo: ttk.Treeview = None
 
-        # TODO Map view
-        # self.frm_map: Frame = None
+        self.var_viewmode = IntVar(value=_VIEWMODE_BASE)
+        self.var_viewmode.trace_add('write', self._on_viewmode_change)
+        self.var_gamepath = StringVar(
+            value=self.controller.config.get('gamepath', ''))
+        self.var_ammo_amount = StringVar()
 
-        # Tree view
-        self.frm_treeview: Frame = None
-        self.tree_seria: ttk.Treeview = None
-        self.text_treeview_detail: scrolledtext.ScrolledText = None
+        # tuple of (entry, variable, editable, callback)
+        self.ent_seria_attributes = list()
+        # tuple of (scale, variable, callback)
+        self.sc_seria_attributes = list()
+        self.btn_seria_actions = list()
+        self.ent_ammo_amount: Entry = None
 
+        self.menu_file: Menu = None
         self._make_menu()
-        self._make_baseview()
-        self._make_treeview()
-        # TODO make map view
-        self._on_view_change()
 
-        self.root.after(0, self._load_config)
+        # make frames, maintain this invokation order
+        self._make_settings()
+        self._make_baseview()
+        self._make_mapview()
+        self._make_treeview()
+
+        # set the initial view
+        if self.var_gamepath.get() == '':
+            self.var_viewmode.set(_VIEWMODE_SETTINGS)
+        self._on_viewmode_change()
+
+        if self.controller.text is not None:
+            self.menu_file.entryconfig(1, state=NORMAL)  # OPEN_PROFILE
+
         self.root.mainloop()
 
-    def _load_config(self):
-        try:
-            file = open(_CFG_PATH, 'r')
+    # helper methods for building the widgets
 
-            config = json.load(file)
-            if tuple(config.keys()) != _CFG_SET:
-                messagebox.showerror(
-                    'Config', 'Invalid config file, please delete it')
-                return
+    def _grid_btn(self, parent: Frame, text: str, command):
+        _, row = parent.grid_size()
 
-            self.config = config
-        except FileNotFoundError:
-            gamepath = filedialog.askdirectory(
-                title='Select HighFleet game folder')
+        button = Button(parent, text=text, command=command)
+        button.grid(row=row, column=0, sticky=EW)
 
-            if gamepath == '' or isinstance(gamepath, tuple):
-                messagebox.showwarning('Config', 'Game folder not selected')
-                return
+        return button
 
-            self.config['gamepath'] = gamepath
+    def _grid_lbl_ent(self, parent, text: str, state: str = NORMAL, variable: StringVar = None, callback=None):
+        _, row = parent.grid_size()
 
-            oid_text = load_text(gamepath)
-            if oid_text is None:
-                messagebox.showerror(
-                    'Config', 'Failed to load dialog file')
-                return
+        label = Label(parent, text=text)
+        entry = Entry(parent, state=state, textvariable=variable, width=10)
+        label.grid(row=row, column=0, sticky=W)
+        entry.grid(row=row, column=1, sticky=EW)
 
-            self.config['oid_text'] = oid_text
+        if variable is not None:
+            variable.trace_add('write', callback)
 
-            json.dump(self.config, open(_CFG_PATH, 'w'))
+        return entry
+
+    def _grid_lbl_ent_seria(self, parent, text: str, editable: bool = True, src_callback=None, var_callback=None):
+        # src_callback: use to get the value from model, triggered by code
+        # var_callback: from variable, update the model value, triggered by user input
+        var_str = StringVar()
+        entry = self._grid_lbl_ent(parent, text, 'readonly', var_str, lambda *args: var_callback(
+            var_str.get()) if var_callback is not None else None)
+        self.ent_seria_attributes.append(
+            (entry, var_str, editable, src_callback))
+
+    def _grid_lbl_sc(self, parent, text: str, from_: int, to: int, step: int, variable: StringVar = None, callback=None):
+        _, row = parent.grid_size()
+
+        label = Label(parent, text=text)
+        scale = Scale(parent, orient=HORIZONTAL, variable=variable, digits=3,
+                      from_=from_, to=to, resolution=step, length=10, width=5)
+        label.grid(row=row, column=0, sticky=W)
+        scale.grid(row=row, column=1, sticky=EW)
+
+        if variable is not None:
+            variable.trace_add('write', callback)
+
+        return scale
+
+    def _grid_lbl_sc_seria(self, parent, text: str, from_: int, to: int, step: int, src_callback=None, var_callback=None):
+        var_int = IntVar()
+        scale = self._grid_lbl_sc(parent, text, from_, to, step, var_int, lambda *args: var_callback(
+            var_int.get()) if var_callback is not None else None)
+        scale.config(state=DISABLED)
+        self.sc_seria_attributes.append((scale, var_int, src_callback))
+
+    def _grid_lbl_sc_seria_worldview(self, parent, text: str, attribute: str):
+        self._grid_lbl_sc_seria(parent, text, -3, 3, 0.25,
+                                lambda: self.controller.profile_model.get_worldview(
+                                    attribute),
+                                lambda v: self.controller.profile_model.set_worldview(attribute, v))
+
+    # methods defining the view
 
     def _make_menu(self):
-        def show_about():
-            messagebox.showinfo(
-                'About', f'''SeriaView v{__version__}
-Developed by {__author__}
-More information at: https://github.com/DKAMX/HighFleet-SeriaView''')
+        menu = Menu(self.root)
 
-        menubar = Menu(self.root)
-        self.root.config(menu=menubar)
+        self.menu_file = Menu(menu, tearoff=False)
+        self.menu_file.add_command(
+            label=L10N().text('OPEN'), command=self._open_file)
 
-        menu_file = Menu(menubar, tearoff=False)
-        menu_file.add_command(label='Open', command=self.open_file)
-        menu_file.add_command(label='Save', command=self.save_file)
-        menu_file.add_command(label='Close', command=self.close_file)
-        menubar.add_cascade(label='File', menu=menu_file)
+        menu_file_profile = Menu(self.menu_file, tearoff=False)
+        menu_file_profile.add_command(label=L10N().text(
+            'PROFILE_1'), command=lambda: self._open_profile(1))
+        menu_file_profile.add_command(label=L10N().text(
+            'PROFILE_2'), command=lambda: self._open_profile(2))
+        menu_file_profile.add_command(label=L10N().text(
+            'PROFILE_3'), command=lambda: self._open_profile(3))
+        self.menu_file.add_cascade(label=L10N().text(
+            'OPEN_PROFILE'), state=DISABLED, menu=menu_file_profile)
 
-        menu_view = Menu(menubar, tearoff=False)
-        menu_view.add_radiobutton(label='Base view', command=self._on_view_change,
-                                  value=0, variable=self.var_viewmode)
-        # menu_view.add_radiobutton(label='Map view', command=self._on_view_change,
-        #                           value=1, variable=self.view_mode)
-        menu_view.add_radiobutton(label='Tree view', command=self._on_view_change,
-                                  value=2, variable=self.var_viewmode)
-        menubar.add_cascade(label='View', menu=menu_view)
+        self.menu_file.add_command(
+            label=L10N().text('SAVE'), command=self._save_file)
+        self.menu_file.add_command(label=L10N().text(
+            'CLOSE'), command=self._close_file)
+        self.menu_file.add_command(label=L10N().text(
+            'SETTINGS'), command=lambda: self.var_viewmode.set(_VIEWMODE_SETTINGS))
+        menu.add_cascade(label=L10N().text('FILE'), menu=self.menu_file)
 
-        menubar.add_command(label='About', command=show_about)
+        menu_view = Menu(menu, tearoff=False)
+        menu_view.add_radiobutton(label=L10N().text(
+            'VIEW_BASE'), value=_VIEWMODE_BASE, variable=self.var_viewmode, command=self._on_viewmode_change)
+        # menu_view.add_radiobutton(label=L10N().text(
+        #     'VIEW_MAP'), value=_VIEWMODE_MAP, variable=self.var_viewmode, command=self._on_viewmode_change)
+        # menu_view.add_radiobutton(label=L10N().text(
+        #     'VIEW_TREE'), value=_VIEWMODE_TREE, variable=self.var_viewmode, command=self._on_viewmode_change)
+        menu.add_cascade(label=L10N().text('VIEW'), menu=menu_view)
 
-    def _on_view_change(self):
-        if self.var_viewmode.get() == 0:
-            self.frm_baseview.pack(expand=True, fill=BOTH)
-            # self.frm_map.pack_forget()
-            self.frm_treeview.pack_forget()
-        elif self.var_viewmode.get() == 1:
-            pass
-            # TODO
-            # self.frm_base.pack_forget()
-            # self.frm_map.pack(expand=True, fill=BOTH)
-            # self.frm_tree.pack_forget()
-        elif self.var_viewmode.get() == 2:
-            self.frm_baseview.pack_forget()
-            # self.frm_map.pack_forget()
-            self.frm_treeview.pack(expand=True, fill=BOTH)
+        menu.add_command(label=L10N().text('ABOUT'), command=self._about)
+
+        self.root.config(menu=menu)
+
+    def _make_settings(self):
+        frm_settings = Frame(self.root)
+        self.frame_list.append(frm_settings)
+
+        frm_settings.columnconfigure(1, weight=1)
+
+        self._grid_btn(frm_settings, L10N().text('BACK'),
+                       lambda: self.var_viewmode.set(_VIEWMODE_BASE))
+        self._grid_lbl_ent(frm_settings, L10N().text(
+            'GAME_PATH'), 'readonly', self.var_gamepath, self._on_gamepath_change)
+        Button(frm_settings, command=self._set_gamepath,
+               text=L10N().text('BROWSE')).grid(row=1, column=2)
 
     def _make_baseview(self):
-        self.frm_baseview = Frame(self.root)
-        self.frm_baseview.columnconfigure(0, weight=1)
-        self.frm_baseview.columnconfigure(1, weight=1)
-        self.frm_baseview.rowconfigure(1, weight=1)
-        self.frm_baseview.rowconfigure(2, weight=1)
+        frm_baseview = ttk.Notebook(self.root)
+        self.frame_list.append(frm_baseview)
 
-        # basic information panel
-        frm_info = Frame(self.frm_baseview)
-        frm_info.grid(row=0, column=0, columnspan=2, sticky=NSEW)
+        # frm_fleet = Frame(frm_baseview)
+        # frm_npc = Frame(frm_baseview)
 
-        label_bonus = Label(frm_info, text='Bonus')
-        label_bonus.pack(side=LEFT)
-        self.entry_bonus = Entry(
-            frm_info, textvariable=self.var_bonus, width=10)
-        self.entry_bonus.config(state=DISABLED)
-        self.entry_bonus.pack(side=LEFT)
+        # frm_fleet.pack(fill=BOTH, expand=True)
+        # frm_npc.pack(fill=BOTH, expand=True)
 
-        label_cash = Label(frm_info, text='Cash')
-        label_cash.pack(side=LEFT)
-        self.entry_cash = Entry(frm_info, textvariable=self.var_cash, width=10)
-        self.entry_cash.config(state=DISABLED)
-        self.entry_cash.pack(side=LEFT)
+        frm_baseview.add(self._make_player_frame(
+            frm_baseview), text=L10N().text('PLAYER'))
+        # frm_baseview.add(frm_fleet, text=L10N().text('FLEET'))
+        # frm_baseview.add(frm_npc, text=L10N().text('NPC'))
 
-        self.var_bonus.trace('w', self._on_bonus_change)
-        self.var_cash.trace('w', self._on_cash_change)
+    def _make_mapview(self):
+        frm_mapview = Frame(self.root)
+        self.frame_list.append(frm_mapview)
 
-        # player's squadron panel
-        frm_squadron = LabelFrame(self.frm_baseview, text='Squadron')
-        frm_squadron.grid(row=1, column=0, sticky=NSEW)
-        frm_squadron.propagate(False)
+    def _make_treeview(self):
+        frm_treeview = Frame(self.root)
+        self.frame_list.append(frm_treeview)
 
-        self.tree_squadron = ttk.Treeview(frm_squadron, selectmode=BROWSE,
-                                          show='tree')
-        self.tree_squadron.pack(expand=True, fill=BOTH, side=LEFT)
+    def _make_player_frame(self, parent) -> Frame:
+        # player frame (basic information panel)
+        frm_player = Frame(parent)
+        frm_player.pack(fill=BOTH, expand=True)
+        frm_player.columnconfigure(0, weight=1)
+        frm_player.columnconfigure(1, weight=1)
+        frm_player.rowconfigure(0, weight=1)
+        frm_player.rowconfigure(1, weight=2)
 
-        sb_squadron = ttk.Scrollbar(frm_squadron, orient='vertical',
-                                    command=self.tree_squadron.yview)
-        sb_squadron.pack(fill=Y, side=RIGHT)
-        self.tree_squadron.config(yscrollcommand=sb_squadron.set)
+        # stat panel
+        frm_stat = Frame(frm_player)
+        frm_stat.grid(row=0, column=0, sticky=NSEW)
+        frm_stat.columnconfigure(0, weight=1)
+        frm_stat.columnconfigure(1, weight=1)
+        frm_stat.grid_propagate(False)
 
-        #  ship hold panel
-        frm_hold = LabelFrame(self.frm_baseview, text='Ship Hold')
-        frm_hold.grid(row=1, column=1, sticky=NSEW)
-        frm_hold.propagate(False)
+        self._grid_lbl_ent_seria(frm_stat, L10N().text('GAME_VERSION'), False,
+                                 lambda: self.controller.seria.get_attribute('gameVersion'))
+        self._grid_lbl_ent_seria(frm_stat, L10N().text('CODENAME'), False,
+                                 lambda: self.controller.seria.get_attribute('m_codename'))
+        self._grid_lbl_ent_seria(frm_stat, L10N().text('SAVETIME'), False,
+                                 lambda: self.controller.seria.get_attribute('m_savetime'))
+        self._grid_lbl_ent_seria(frm_stat, L10N().text('SCORES'),
+                                 src_callback=self.controller.profile_model.get_bonus,
+                                 var_callback=self.controller.profile_model.set_bonus)
+        self._grid_lbl_ent_seria(frm_stat, L10N().text('CASH'),
+                                 src_callback=self.controller.profile_model.get_money,
+                                 var_callback=self.controller.profile_model.set_money)
+        self._grid_btn(frm_stat, L10N().text('UNLOCK_SHIPS'),
+                       self.controller.profile_model.unlock_all_ships)
 
-        self.tree_hold = ttk.Treeview(frm_hold, columns=['type', 'count'],
-                                      selectmode=BROWSE)
-        self.tree_hold.heading('#0', text='')
-        self.tree_hold.heading('type', anchor=CENTER, text='NAME')
-        self.tree_hold.heading('count', anchor=CENTER, text='AMT')
-        self.tree_hold.column('#0', width=20, stretch=False)
-        self.tree_hold.column('type', width=200)
-        self.tree_hold.column('count', anchor=CENTER, width=50)
-        self.tree_hold.pack(expand=True, fill=BOTH, side=LEFT)
+        # worldview panel
+        frm_worldview = LabelFrame(frm_player, text=L10N().text('WORLDVIEW'))
+        frm_worldview.grid(row=1, column=0, sticky=NSEW)
+        frm_worldview.columnconfigure(0, weight=1)
+        frm_worldview.columnconfigure(1, weight=4)
+        frm_worldview.grid_propagate(False)
 
-        sb_parts = ttk.Scrollbar(frm_hold, orient='vertical',
-                                 command=self.tree_hold.yview)
-        sb_parts.pack(fill=Y, side=RIGHT)
-        self.tree_hold.config(yscrollcommand=sb_parts.set)
+        self._grid_lbl_sc_seria_worldview(
+            frm_worldview, L10N().text('FEAR'), 'fear')
+        self._grid_lbl_sc_seria_worldview(
+            frm_worldview, L10N().text('GERAT'), 'gerat')
+        self._grid_lbl_sc_seria_worldview(
+            frm_worldview, L10N().text('ROMANI'), 'romani')
+        self._grid_lbl_sc_seria_worldview(
+            frm_worldview, L10N().text('FAITH'), 'faith')
+        self._grid_lbl_sc_seria_worldview(
+            frm_worldview, L10N().text('ORDER'), 'order')
+        self._grid_lbl_sc_seria_worldview(
+            frm_worldview, L10N().text('FORCE'), 'force')
+        self._grid_lbl_sc_seria_worldview(
+            frm_worldview, L10N().text('WEALTH'), 'wealth')
+        self._grid_lbl_sc_seria_worldview(
+            frm_worldview, L10N().text('KINDNESS'), 'kindness')
 
-        self.tree_hold.bind('<<TreeviewSelect>>', self._on_tree_hold_select)
+        # ammo panel
+        frm_ammo = LabelFrame(frm_player, text=L10N().text('AMMO_REG'))
+        frm_ammo.grid(row=0, column=1, rowspan=2, sticky=NSEW)
+        frm_ammo.columnconfigure(0, weight=1)
+        frm_ammo.columnconfigure(1, weight=1)
+        frm_ammo.rowconfigure(0, weight=1)
+        frm_ammo.grid_propagate(False)
 
-        # special ammunition register panel
-        frm_ammo = LabelFrame(self.frm_baseview, text='Ammunition')
-        frm_ammo.grid(row=2, column=0, sticky=NSEW)
-        frm_ammo.propagate(False)
-
-        self.tree_ammo = ttk.Treeview(frm_ammo, columns=['type', 'count'],
-                                      selectmode=BROWSE)
+        self.tree_ammo = ttk.Treeview(
+            frm_ammo, columns=['type', 'count'], selectmode=BROWSE)
         self.tree_ammo.heading('#0', text='')
-        self.tree_ammo.heading('type', anchor=CENTER, text='TYPE')
-        self.tree_ammo.heading('count', anchor=CENTER, text='PCS')
+        self.tree_ammo.heading('type', anchor=CENTER, text=L10N().text('TYPE'))
+        self.tree_ammo.heading('count', anchor=CENTER,
+                               text=L10N().text('AMOUNT'))
         self.tree_ammo.column('#0', width=0, stretch=False)
         self.tree_ammo.column('type', width=200)
         self.tree_ammo.column('count', anchor=CENTER, width=50)
-        self.tree_ammo.pack(expand=True, fill=BOTH, side=LEFT)
+        self.tree_ammo.grid(row=0, column=0, columnspan=2, sticky=NSEW)
 
         sb_ammo = ttk.Scrollbar(frm_ammo, orient='vertical',
                                 command=self.tree_ammo.yview)
-        sb_ammo.pack(fill=Y, side=RIGHT)
+        sb_ammo.grid(row=0, column=2, sticky=NS)
         self.tree_ammo.config(yscrollcommand=sb_ammo.set)
-
         self.tree_ammo.bind('<<TreeviewSelect>>', self._on_tree_ammo_select)
+        self.ent_ammo_amount = self._grid_lbl_ent(frm_ammo, L10N().text(
+            'EDIT_AMOUNT'), 'readonly', self.var_ammo_amount, self._on_ammo_amount_change)
 
-        # control panel
-        frm_control = LabelFrame(self.frm_baseview, text='Control')
-        frm_control.grid(row=2, column=1, sticky=NSEW)
-        frm_control.propagate(False)
+        Label(frm_ammo, text=L10N().text('ADD_AMMO')).grid(
+            row=2, column=0, sticky=W)
+        ammo_types = tuple(Ammo.get_ammo_types())
+        var_ammo_type_select = StringVar()
+        menu_ammo = OptionMenu(frm_ammo, var_ammo_type_select, *ammo_types)
+        menu_ammo.config(width=25)
+        menu_ammo.grid(row=3, column=0, sticky=EW)
+        btn_add_ammo = Button(frm_ammo, text=L10N().text(
+            'ADD'), command=lambda: self._add_ammo(var_ammo_type_select.get()))
+        btn_add_ammo.grid(row=3, column=1, sticky=EW)
 
-        self.frm_hold_control = Frame(frm_control)
-        btn_hold_add_100 = Button(self.frm_hold_control, text='+ 10',
-                                  command=self._add_part_10)
-        btn_hold_add_500 = Button(self.frm_hold_control, text='+ 50',
-                                  command=self._add_part_50)
-        btn_hold_add_100.pack(side=LEFT)
-        btn_hold_add_500.pack(side=LEFT)
+        return frm_player
 
-        self.frm_ammo_control = Frame(frm_control)
-        btn_ammo_add_100 = Button(self.frm_ammo_control, text='+ 100',
-                                  command=self._add_ammo_100)
-        btn_ammo_add_500 = Button(self.frm_ammo_control, text='+ 500',
-                                  command=self._add_ammo_500)
-        btn_ammo_add_100.pack(side=LEFT)
-        btn_ammo_add_500.pack(side=LEFT)
+    # event handlers
 
-    def _update_baseview(self):
-        self.entry_bonus.config(state=NORMAL)
-        self.entry_cash.config(state=NORMAL)
+    def _on_viewmode_change(self, *args):
+        self.logger.info(f'_on_viewmode_change: {args}')
 
-        self._update_tree_squadron()
-        self._update_tree_hold()
+        for frm in self.frame_list:
+            frm.pack_forget()
+        view = self.var_viewmode.get()
+        self.frame_list[view].pack(fill=BOTH, expand=True)
+
+    def _on_gamepath_change(self, *args):
+        self.logger.info(f'_on_gamepath_change: {args}')
+
+        self.controller.set_gamepath(self.var_gamepath.get())
+        # if text is None, we assume the gamepath is invalid, thus disable the profile menu
+        if self.controller.text is None:
+            self.menu_file.entryconfig(1, state=DISABLED)  # OPEN_PROFILE
+        else:
+            self.menu_file.entryconfig(1, state=NORMAL)
+
+    def _on_ammo_amount_change(self, *args):
+        self.logger.info(f'_on_ammo_amount_change: {args}')
+
+        focus = self.tree_ammo.focus()
+
+        ammo_type = self.tree_ammo.item(focus, 'values')[0]
+
+        # update the model
+        if ammo_type == '':
+            # Treeview will be unfocused if we click on other widget
+            return
+        if self.controller.profile_model.set_ammo(Ammo.get_ammo_index(ammo_type), self.var_ammo_amount.get()):
+            # only update the view if the model update was successful
+            self.tree_ammo.item(focus, values=(
+                ammo_type, self.var_ammo_amount.get()))
+
+    def _update_view(self):
+        self.logger.info('_update_view')
+
+        for entry, variable, editable, callback in self.ent_seria_attributes:
+            variable.set(callback())
+            if editable:
+                entry.config(state=NORMAL)
+
+        for scale, variable, callback in self.sc_seria_attributes:
+            variable.set(callback())
+            scale.config(state=NORMAL)
+
         self._update_tree_ammo()
+        self.ent_ammo_amount.config(state=NORMAL)
 
-    def _update_tree_squadron(self):
-        self.tree_squadron.delete(*self.tree_squadron.get_children())
+    def _clear_view(self):
+        self.logger.info('_clear_view')
 
-        for squadron in self.squadron_nodes:
-            name = squadron.get_attribute('m_name')
+        for entry, variable, _, _ in self.ent_seria_attributes:
+            entry.config(state='readonly')
+            variable.set('')
 
-            # squadron treeview
-            squadron_iid = self.tree_squadron.insert('', 'end', text=name)
-            for ship in squadron.filter_nodes(lambda n: n.header == 'm_children=7'):
-                self.tree_squadron.insert(squadron_iid, 'end',
-                                          text=self.get_ship_name(ship))
+        for scale, variable, _ in self.sc_seria_attributes:
+            scale.config(state=DISABLED)
+            variable.set(0)
 
-        # expand tree root by default
-        for child in self.tree_squadron.get_children():
-            self.tree_squadron.item(child, open=True)
-
-    def _update_tree_hold(self):
-        self.tree_hold.delete(*self.tree_hold.get_children())
-
-        squadron_node_index = 0
-        for squadron in self.squadron_nodes:
-            name = squadron.get_attribute('m_name')
-
-            # ship hold treeview
-            hold_iid = self.tree_hold.insert('', 'end', values=(name, ''))
-
-            for item in self.squadron_hold_nodes[squadron_node_index].get_nodes():
-                oid = item.get_attribute('m_oid')
-                count = item.get_attribute('m_count') or 1
-                self.tree_hold.insert(hold_iid, 'end',
-                                      values=(self.get_item_name(oid), count))
-
-            squadron_node_index += 1
-
-        # expand tree root by default
-        for child in self.tree_hold.get_children():
-            self.tree_hold.item(child, open=True)
+        self.tree_ammo.delete(*self.tree_ammo.get_children())
+        self.ent_ammo_amount.config(state='readonly')
 
     def _update_tree_ammo(self):
+        self.logger.info('_update_tree_ammo')
+
         self.tree_ammo.delete(*self.tree_ammo.get_children())
-
-        for node_index, ammo in enumerate(self.ammo_nodes):
-            index = ammo.get_attribute('m_index')
-            ammo_type = self.get_ammo_type(index)
-            if ammo_type:
-                count = ammo.get_attribute('m_count') or 1
-                self.tree_ammo.insert('', 'end',
-                                      iid=node_index, values=(ammo_type, count))
-
-    def _add_part_amount(self, amount: int):
-        iid = self.tree_hold.focus()
-        parent_iid = self.tree_hold.parent(iid)
-
-        if parent_iid == '':
-            return
-
-        index = self.tree_hold.index(iid)
-        parent_index = self.tree_hold.index(parent_iid)
-        item = self.squadron_hold_nodes[parent_index].get_node(index)
-
-        item_count = item.get_attribute('m_count')
-        new_count = (int(item_count) if item_count else 1) + amount
-        item.set_attribute('m_count', str(new_count))
-
-        self._update_tree_hold()
-
-    def _add_part_10(self):
-        self._add_part_amount(10)
-
-    def _add_part_50(self):
-        self._add_part_amount(50)
-
-    def _add_ammo_amount(self, amount: int):
-        index = self.tree_ammo.focus()
-
-        if not index:
-            return
-
-        ammo = self.ammo_nodes[int(index)]
-        ammo_count = ammo.get_attribute('m_count')
-        new_count = (int(ammo_count) if ammo_count else 1) + amount
-        ammo.set_attribute('m_count', str(new_count))
-
-        self._update_tree_ammo()
-
-    def _add_ammo_100(self):
-        self._add_ammo_amount(100)
-
-    def _add_ammo_500(self):
-        self._add_ammo_amount(500)
-
-    def _make_treeview(self):
-        self.frm_treeview = Frame(self.root)
-        self.frm_treeview.columnconfigure(0, weight=1)
-        self.frm_treeview.columnconfigure(1, weight=1)
-        self.frm_treeview.rowconfigure(0, weight=1)
-
-        # seria tree panel
-        frm_tree = Frame(self.frm_treeview)
-        frm_tree.grid(row=0, column=0, sticky=NSEW)
-        frm_tree.propagate(False)
-
-        self.tree_seria = ttk.Treeview(frm_tree, selectmode=BROWSE,
-                                       show='tree')
-        self.tree_seria.pack(expand=True, fill=BOTH, side=LEFT)
-
-        sb_tree = ttk.Scrollbar(frm_tree, orient='vertical',
-                                command=self.tree_seria.yview)
-        sb_tree.pack(fill=Y, side=RIGHT)
-        self.tree_seria.config(yscrollcommand=sb_tree.set)
-
-        # seria node detail panel
-        frm_detail = Frame(self.frm_treeview)
-        frm_detail.grid(row=0, column=1, sticky=NSEW)
-        frm_detail.propagate(False)
-
-        self.text_treeview_detail = scrolledtext.ScrolledText(
-            frm_detail, width=40)
-        self.text_treeview_detail.insert('end', _TIP_FILE)
-        self.text_treeview_detail.config(state=DISABLED)
-        self.text_treeview_detail.pack(expand=True, fill=BOTH)
-
-        self.tree_seria.bind('<<TreeviewSelect>>', self._on_tree_seria_select)
-
-    def _update_treeview(self):
-        def get_node_summary(node: seria.SeriaNode):
-            classname = node.get_attribute('m_classname')
-            name = node.get_attribute('m_name')
-            codename = node.get_attribute('m_codename')
-            fullname = node.get_attribute('m_fullname')
-
-            if classname == 'Escadra':
-                return f'Squadron {name}'
-            if classname == 'Location':
-                return f'City {name} ({codename})'
-            if classname == 'NPC':
-                return f'{classname} {fullname}' if str.isalpha(name) and fullname else classname
-            if classname == 'Node':
-                ship_name = self.get_ship_name(node)
-                return classname if ship_name is None else f'{classname} {ship_name}'
-            if classname == 'Body':
-                return f'{classname} {name}' if name else classname
-            return classname
-
-        def append_children(node: seria.SeriaNode, parent_id: str):
-            node_id = self.tree_seria.insert(
-                parent_id, 'end', text=get_node_summary(node))
-            for child in node.get_nodes():
-                append_children(child, node_id)
-
-        self.tree_seria.delete(*self.tree_seria.get_children())
-
-        # populate tree with seria nodes
-        root_id = self.tree_seria.insert(
-            '', 'end', text=get_node_summary(self.seria))
-
-        for node in self.seria.get_nodes():
-            append_children(node, root_id)
-
-        self.tree_seria.item(root_id, open=True)
-
-        self.text_treeview_detail.config(state=NORMAL)
-        self.text_treeview_detail.delete(1.0, END)
-        self.text_treeview_detail.insert(
-            'end', _TIP_NODE)
-        self.text_treeview_detail.config(state=DISABLED)
-
-    def _on_bonus_change(self, *args):
-        try:
-            bonus = int(self.var_bonus.get())
-            if bonus <= 0:
-                raise ValueError
-            self.seria.set_attribute('m_scores', str(bonus))
-        except ValueError:
-            self.var_bonus.set(self.seria.get_attribute('m_scores'))
-
-    def _on_cash_change(self, *args):
-        try:
-            cash = int(self.var_cash.get())
-            if cash < 0:
-                raise ValueError
-            self.seria.set_attribute('m_cash', str(cash))
-        except ValueError:
-            self.var_cash.set(self.seria.get_attribute('m_cash'))
-
-    def _on_tree_squadron_select(self, event):
-        pass
-
-    def _on_tree_hold_select(self, event):
-        self.frm_ammo_control.pack_forget()
-        self.frm_hold_control.pack(expand=True, fill=BOTH)
+        for ammo in self.controller.profile_model.get_ammo_list():
+            self.tree_ammo.insert('', 'end', values=(ammo[0], ammo[1]))
 
     def _on_tree_ammo_select(self, event):
-        self.frm_hold_control.pack_forget()
-        self.frm_ammo_control.pack(expand=True, fill=BOTH)
+        self.logger.info(f'_on_tree_ammo_select: {event}')
 
-    def _on_tree_seria_select(self, event):
-        def print_key_value(k, v):
-            return f'{k}: {v}\n' if not k.startswith('_') else f'{v}\n'
+        item_values = self.tree_ammo.item(self.tree_ammo.focus(), 'values')
+        if item_values == '':
+            return
+        self.var_ammo_amount.set(item_values[1])
 
-        def print_node_attributes(node: seria.SeriaNode):
-            self.text_treeview_detail.config(state=NORMAL)
-            self.text_treeview_detail.delete(1.0, END)
-            for key, value in node.get_attributes().items():
-                if isinstance(value, list):
-                    for v in value:
-                        self.text_treeview_detail.insert(
-                            'end', print_key_value(key, v))
-                else:
-                    self.text_treeview_detail.insert(
-                        'end', print_key_value(key, value))
-            self.text_treeview_detail.config(state=DISABLED)
+    def _add_ammo(self, type: str):
+        count = self.controller.profile_model.get_ammo_count(
+            Ammo.get_ammo_index(type))
+        if self.controller.profile_model.set_ammo(
+                Ammo.get_ammo_index(type), str(int(count) + 1)):
+            self._update_tree_ammo()
 
-        iid = event.widget.focus()
-        parent_iid = self.tree_seria.parent(iid)
+    def _open_file(self):
+        self.logger.info('open_file')
 
-        if parent_iid == '':
-            print_node_attributes(self.seria)
+        path = ask_openfilename('')
+        if path == '' or isinstance(path, tuple):
+            return
+        self.controller.load_seria(path)
+        self._update_view()
+
+    def _open_profile(self, index: int):
+        self.logger.info(f'open_profile: {index}')
+
+        self.controller.load_profile(index)
+        self._update_view()
+
+    def _save_file(self):
+        self.logger.info('save_file')
+
+        if self.controller.seria is None:
             return
 
-        # node index sequence (from root to selected node)
-        index_sequence = []
-        while parent_iid != '':
-            index_sequence.insert(0, self.tree_seria.index(iid))
-            iid = parent_iid
-            parent_iid = self.tree_seria.parent(iid)
-
-        node = self.seria
-        for index in index_sequence:
-            node = node.get_node(index)
-
-        print_node_attributes(node)
-
-    def get_ship_name(self, node: seria.SeriaNode):
-        try:
-            frame = node.get_node_by_class('Frame')
-            body = frame.get_node_if(
-                lambda n: n.get_attribute('m_name') == 'COMBRIDGE')
-            creature = body.get_node_by_class('Creature')
-            return creature.get_attribute('m_ship_name')
-        except:
-            return None
-
-    def get_item_name(self, oid: str):
-        if self.config is None:
-            return oid
-        desc = self.config["oid_text"].get(f"{oid}_SDESC", "")
-        return f'{self.config["oid_text"].get(oid, oid)} {desc if desc == "" else f"({desc})"}'
-
-    def get_ammo_type(self, index: str):
-        ammo_types = {
-            '8': '122mm Unguided rocket',
-            '13': '340mm Unguided rocket',
-            '14': '37mm Incendiary',
-            '15': '57mm Incendiary',
-            '16': '100mm Armor piercing',
-            '17': '100mm Proximity fuze',
-            '18': '100mm Incendiary',
-            '19': '130mm Armor piercing',
-            '20': '130mm Proximity fuze',
-            '21': '130mm Incendiary',
-            '22': '130mm Laser guided',
-            '23': '180mm Armor piercing',
-            '24': '180mm Proximity fuze',
-            '25': '180mm Incendiary',
-            '26': '180mm Laser guided',
-            '27': '220mm Incendiary',
-            '28': '300mm Incendiary',
-            '30': '100 kg General purpose bomb',
-            '31': '250 kg General purpose bomb',
-            '35': 'Air-to-air missile'
-        }
-
-        return ammo_types.get(index, None)
-
-    def open_file(self):
-        file_path = filedialog.askopenfilename(
-            filetypes=[('Seria files', '*.seria')])
-
-        if file_path:
-            self.seria = seria.load(file_path)
-
-            self.var_bonus.set(self.seria.get_attribute('m_scores'))
-            self.var_cash.set(self.seria.get_attribute('m_cash'))
-
-            self.ammo_nodes = self.seria.get_nodes_by_class('Item')
-            self.squadron_nodes = self.seria.filter_nodes(
-                lambda n: n.header == 'm_escadras=327' and n.get_attribute('m_name') in {'MARK', 'DETACHMENT'})
-            for squadron in self.squadron_nodes:
-                self.squadron_hold_nodes.append(
-                    squadron.get_node_if(lambda n: n.header == 'm_inventory=7'))
-
-            self._update_baseview()
-            self._update_treeview()
-
-            self.root.title(f'SeriaView v{__version__} - {file_path}')
-
-    def save_file(self):
-        if self.seria is None:
+        path = ask_savefilename('')
+        if path == '' or isinstance(path, tuple):
             return
+        self.controller.save_seria(path)
 
-        filepath = filedialog.asksaveasfilename(
-            filetypes=[('Seria files', '*.seria')])
+    def _close_file(self):
+        self.logger.info('close_file')
 
-        if filepath:
-            seria.dump(self.seria, filepath)
-            messagebox.showinfo('Save', f'File saved to: {filepath}')
+        self.controller.seria = None
+        self._clear_view()
 
-    def close_file(self):
-        if self.seria is None:
+    def _set_gamepath(self):
+        self.logger.info('set_gamepath')
+
+        path = ask_directory(L10N().text('GAME_PATH'))
+        if path == '' or isinstance(path, tuple):
             return
-        self.seria = None
+        self.var_gamepath.set(path)
 
-        # clear base view
-        self.entry_bonus.config(state=DISABLED)
-        self.entry_cash.config(state=DISABLED)
-        self.tree_squadron.delete(*self.tree_squadron.get_children())
-        self.tree_hold.delete(*self.tree_hold.get_children())
-        self.tree_ammo.delete(*self.tree_ammo.get_children())
+    def _about(self):
+        self.logger.info('_about')
 
-        # clear tree view
-        self.tree_seria.delete(*self.tree_seria.get_children())
-        self.text_treeview_detail.config(state=NORMAL)
-        self.text_treeview_detail.delete(1.0, END)
-        self.text_treeview_detail.insert('end', _TIP_FILE)
-        self.text_treeview_detail.config(state=DISABLED)
-
-        self.root.title(f'SeriaView v{__version__}')
+        show_message('About', f'''SeriaView v{__version__}
+Developed by {__author__}
+More information at: https://github.com/DKAMX/HighFleet-SeriaView''')
 
 
-def load_text(gamepath):
-    '''Load in-game text from resource file, return as a dictionary
-    @return: key(oid), value(text)'''
-
-    lines = dec_seria(gamepath)
-
-    if lines is None:
-        return None
-
-    text_map = dict()
-    for line in lines:
-        if line.startswith('#ITEM') or line.startswith('#CRAFT') or line.startswith('#MDL'):
-            key, value = line.split('\t', 1)
-            text_map[key[1:]] = value
-    return text_map
+def ask_directory(title: str):
+    return filedialog.askdirectory(title=title)
 
 
-def dec_seria(filepath):
-    try:
-        dialog_path = filepath + '/Data/Dialogs/english.seria_enc'
-        file = open(dialog_path, 'rb')
-        data = list(file.read())
-        a = 0
-        b = 2531011
-        while a < len(data):
-            data[a] = (b ^ (b >> 15) ^ data[a]) & 0xff
-            b += 214013
-            b &= 0xffffffff
-            a += 1
-        return bytes(data).decode('cp1251').split('\n')
-    except:
-        print(f'Error: cannot open file {dialog_path}')
-        return None
+def ask_openfilename(title: str):
+    return filedialog.askopenfilename(filetypes=[('Seria files', '*.seria')], title=title)
+
+
+def ask_savefilename(title: str):
+    return filedialog.asksaveasfilename(filetypes=[('Seria files', '*.seria')], title=title)
+
+
+def show_message(title: str, message: str):
+    messagebox.showinfo(title, message)
 
 
 if __name__ == '__main__':
-    SeriaController()
+    SeriaView()
