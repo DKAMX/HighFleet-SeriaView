@@ -53,10 +53,12 @@ class SeriaController:
 
 
 def _decrypt_seria(filepath):
-    # https://gist.github.com/blluv/3c72b9e85a190a63da384488d4e28ee9
+    '''Decrypt seria_enc file and return as a list of lines
+    reference: https://gist.github.com/blluv/3c72b9e85a190a63da384488d4e28ee9
+    @param filepath: path to the seria_enc file
+    @return: list of lines'''
     try:
-        dialog_path = filepath + '/Data/Dialogs/english.seria_enc'
-        file = open(dialog_path, 'rb')
+        file = open(filepath, 'rb')
         data = list(file.read())
         a = 0
         b = 2531011
@@ -74,7 +76,7 @@ def _load_text(gamepath):
     '''Load in-game text from resource file, return as a dictionary
     @return: key(oid), value(text)'''
 
-    lines = _decrypt_seria(gamepath)
+    lines = _decrypt_seria(gamepath + '/Data/Dialogs/english.seria_enc')
 
     if lines is None:
         return None
