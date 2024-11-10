@@ -357,12 +357,14 @@ class SeriaView:
 
         focus = self.tree_ammo.focus()
 
-        ammo_type = self.tree_ammo.item(focus, 'values')[0]
+        item_values = self.tree_ammo.item(focus, 'values')
 
         # update the model
-        if ammo_type == '':
+        if item_values == '':
             # Treeview will be unfocused if we click on other widget
             return
+
+        ammo_type = item_values[0]
         if self.controller.profile_model.set_ammo(Ammo.get_ammo_index(ammo_type), self.var_ammo_amount.get()):
             # only update the view if the model update was successful
             self.tree_ammo.item(focus, values=(
