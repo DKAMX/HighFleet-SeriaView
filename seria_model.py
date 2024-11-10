@@ -42,6 +42,10 @@ class Ammo(Enum):
                 return ammo.value[0]
         return '0'
 
+    @classmethod
+    def get_ammo_types(cls) -> list:
+        return [ammo.value[1] for ammo in cls]
+
 
 class AmmoModel:
     def __init__(self, seria: SeriaNode):
@@ -52,15 +56,15 @@ class AmmoModel:
         self.count: str = seria.get_attribute('m_count')
 
     @classmethod
-    def from_index(self, ammo_index: str, amount: str):
+    def from_index(self, index: str, count: str):
         '''Create an AmmoModel from scratch
         @return: AmmoModel'''
 
         seria = SeriaNode(f'm_items={ITEM_AMMO_CODE}', 'Item')
         seria.set_attribute('m_classname', 'Item')
         seria.set_attribute('m_code', ITEM_AMMO_CODE)
-        seria.set_attribute('m_index', ammo_index)
-        seria.set_attribute('m_count', amount)
+        seria.set_attribute('m_index', index)
+        seria.set_attribute('m_count', count)
 
         return AmmoModel(seria)
 
@@ -70,6 +74,7 @@ class AmmoModel:
             raise ValueError('Amount must be a positive integer')
         else:
             self.seria.set_attribute('m_count', str(amount))
+            self.count = str(amount)
 
 
 class ShipModel:
@@ -178,7 +183,17 @@ class ProfileModel:
 
         return [(Ammo.get_ammo_type(ammo.index), ammo.count) for ammo in self.ammo_list]
 
-    def set_ammo(self, ammo_index: str, amount: str) -> bool:
+    def get_ammo_count(self, ammo_index: str) -> int:
+        '''Get the amount of ammo of a certain type.
+        @return: The amount of ammo, or 0 if the ammo does not exist'''
+
+        for ammo in self.ammo_list:
+            if ammo.index == ammo_index:
+                return ammo.count
+
+        return '0'
+
+    def set_ammo(self, index: str, amount: str) -> bool:
         '''Set the amount of ammo of a certain type.
         If the ammo does not exist, it is created.
         @return: True if the operation was successful, False otherwise'''
@@ -194,13 +209,12 @@ class ProfileModel:
             else:
                 for ammo in self.ammo_list:
                     # existing ammo
-                    if ammo.index == ammo_index:
+                    if ammo.index == index:
                         ammo.set_amount(amount_value)
                         return True
 
                 # new ammo
-                new_ammo = AmmoModel.from_index(
-                    ammo_index=ammo_index, amount=amount)
+                new_ammo = AmmoModel.from_index(index, amount)
                 self.ammo_list.append(new_ammo)
                 self.seria.put_node_before_index(new_ammo.seria, -1)
 
