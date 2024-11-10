@@ -2,6 +2,7 @@ import json
 import locale
 import logging
 import logging.config
+import sys
 from tkinter import *
 from tkinter import filedialog, messagebox, ttk
 from seria_model import Ammo, AmmoModel
@@ -42,7 +43,9 @@ class L10N:
 
     def _load_locale(self, code):
         try:
-            with open(f'{_LOCALE_PATH}/{code}.json', encoding='utf-8') as file:
+            filepath = f'{sys._MEIPASS}/{code}.json' if is_bundled(
+            ) else f'{_LOCALE_PATH}/{code}.json'
+            with open(filepath, encoding='utf-8') as file:
                 return json.load(file)
         except FileNotFoundError:
             return dict()
@@ -424,12 +427,14 @@ class SeriaView:
             return
         self.controller.load_seria(path)
         self._update_view()
+        self.root.title(f'{path} - SeriaView v{__version__}')
 
     def _open_profile(self, index: int):
         self.logger.info(f'open_profile: {index}')
 
-        self.controller.load_profile(index)
+        path = self.controller.load_profile(index)
         self._update_view()
+        self.root.title(f'{path} - SeriaView v{__version__}')
 
     def _save_file(self):
         self.logger.info('save_file')
@@ -447,6 +452,7 @@ class SeriaView:
 
         self.controller.seria = None
         self._clear_view()
+        self.root.title(f'SeriaView v{__version__}')
 
     def _set_gamepath(self):
         self.logger.info('set_gamepath')
@@ -478,6 +484,10 @@ def ask_savefilename(title: str):
 
 def show_message(title: str, message: str):
     messagebox.showinfo(title, message)
+
+
+def is_bundled():
+    return getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS')
 
 
 if __name__ == '__main__':
