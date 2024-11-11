@@ -183,9 +183,12 @@ class ProfileModel:
 
         return [(Ammo.get_ammo_type(ammo.index), ammo.count) for ammo in self.ammo_list]
 
-    def get_ammo_count(self, ammo_index: str) -> int:
+    def get_ammo_count(self, ammo_index: str) -> str:
         '''Get the amount of ammo of a certain type.
         @return: The amount of ammo, or 0 if the ammo does not exist'''
+
+        if self.ammo_list is None:
+            return '0'
 
         for ammo in self.ammo_list:
             if ammo.index == ammo_index:
@@ -277,16 +280,6 @@ class ProfileModel:
 
         self.cash = money
 
-    def unlock_all_ships(self):
-        if self.seria is None:
-            return
-
-        for i, unlock in enumerate(self.ship_unlocks):
-            self.ship_unlocks[i] = (unlock[0], True)
-
-        self.seria.set_attribute(
-            'm_unlocks', [f'{name}|{int(unlocked)}' for name, unlocked in self.ship_unlocks])
-
     def get_worldview(self, attribute: str):
         if self.seria is None:
             return
@@ -308,6 +301,16 @@ class ProfileModel:
                 name_value_disaplay, value, 'm_radio_duration_base')
             self.seria.put_attribute_after(
                 name_value, value_disaplay, name_value_disaplay)
+
+    def unlock_all_ships(self):
+        if self.seria is None:
+            return
+
+        for i, unlock in enumerate(self.ship_unlocks):
+            self.ship_unlocks[i] = (unlock[0], True)
+
+        self.seria.set_attribute(
+            'm_unlocks', [f'{name}|{int(unlocked)}' for name, unlocked in self.ship_unlocks])
 
 
 def get_unique_ids(seria: SeriaNode) -> set:

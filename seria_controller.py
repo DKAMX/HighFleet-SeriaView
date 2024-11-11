@@ -3,8 +3,16 @@ import logging
 import seria
 from seria_model import ProfileModel
 
+__author__ = 'Max'
+__version__ = '0.3.0'
+
 _CFG_PATH = 'config.json'
 _CFG_SET = set(['gamepath'])
+
+VIEWMODE_SETTINGS = 0
+VIEWMODE_BASIC = 1
+VIEWMODE_MAP = 2
+VIEWMODE_TREE = 3
 
 
 class SeriaController:
@@ -14,10 +22,12 @@ class SeriaController:
         self.config: dict = self.load_config()
         self.text: dict = _load_text(self.config.get('gamepath', ''))
 
-        self.seria: seria.SeriaNode = None
+        self.seria_node: seria.SeriaNode = None
         self.profile_model: ProfileModel = ProfileModel()  # empty model for callback use
 
     def load_config(self) -> dict:
+        self.logger.info('load_config')
+
         try:
             with open(_CFG_PATH) as file:
                 config = json.load(file)
@@ -29,27 +39,55 @@ class SeriaController:
         except:
             return dict()
 
-    def set_config(self, key, value):
+    def add_config(self, key, value):
+        self.logger.info(f'add_config: {key}={value}')
+
         self.config[key] = value
         with open(_CFG_PATH, 'w') as file:
             json.dump(self.config, file)
 
-    def set_gamepath(self, gamepath):
-        self.set_config('gamepath', gamepath)
-        self.text = _load_text(gamepath)
+    def load_seria(self, filepath) -> bool:
+        '''Load seria file and set it as current seria
+        @return: True if success, False if failed'''
 
-    def load_seria(self, gamepath):
-        self.seria = seria.load(gamepath)
+        self.logger.info(f'load_seria: {filepath}')
 
-        if self.seria.get_attribute('m_classname') == 'Profile':
-            self.profile_model.load(self.seria)
+        node = seria.load(filepath)
 
-    def load_profile(self, index: int):
-        self.load_seria(
-            f'{self.config["gamepath"]}/Saves/Profile_{index}/profile.seria')
+        if node is None:
+            return False
+
+        self.seria_node = node
+        if self.seria_node.get_attribute('m_classname') == 'Profile':
+            self.profile_model.load(self.seria_node)
+
+        return True
+
+    def load_profile(self, index: int) -> str:
+        self.logger.info(f'load_profile: {index}')
+
+        filepath = f'{self.config["gamepath"]}/Saves/Profile_{index}/profile.seria'
+        try:
+            self.load_seria(filepath)
+            return filepath
+        except:
+            return None
 
     def save_seria(self, filepath):
-        seria.dump(self.seria, filepath)
+        self.logger.info(f'save_seria: {filepath}')
+
+        seria.dump(self.seria_node, filepath)
+
+    def get_gamepath(self):
+        self.logger.info('get_gamepath')
+
+        return self.config.get('gamepath', '')
+
+    def set_gamepath(self, gamepath):
+        self.logger.info(f'set_gamepath: {gamepath}')
+
+        self.add_config('gamepath', gamepath)
+        self.text = _load_text(gamepath)
 
 
 def _decrypt_seria(filepath):
@@ -57,6 +95,7 @@ def _decrypt_seria(filepath):
     reference: https://gist.github.com/blluv/3c72b9e85a190a63da384488d4e28ee9
     @param filepath: path to the seria_enc file
     @return: list of lines'''
+
     try:
         file = open(filepath, 'rb')
         data = list(file.read())
