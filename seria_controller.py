@@ -1,10 +1,10 @@
 import json
 import logging
-import seria
+from seria import *
 from seria_model import ProfileModel
+from localization import L10N
 
 __author__ = 'Max'
-__version__ = '0.3.0'
 
 _CFG_PATH = 'config.json'
 _CFG_SET = set(['gamepath'])
@@ -22,7 +22,7 @@ class SeriaController:
         self.config: dict = self.load_config()
         self.text: dict = _load_text(self.config.get('gamepath', ''))
 
-        self.seria_node: seria.SeriaNode = None
+        self.seria_node: SeriaNode = None
         self.profile_model: ProfileModel = ProfileModel()  # empty model for callback use
 
     def load_config(self) -> dict:
@@ -52,7 +52,7 @@ class SeriaController:
 
         self.logger.info(f'load_seria: {filepath}')
 
-        node = seria.load(filepath)
+        node = load(filepath)
 
         if node is None:
             return False
@@ -76,7 +76,7 @@ class SeriaController:
     def save_seria(self, filepath):
         self.logger.info(f'save_seria: {filepath}')
 
-        seria.dump(self.seria_node, filepath)
+        dump(self.seria_node, filepath)
 
     def get_gamepath(self):
         self.logger.info('get_gamepath')
@@ -88,6 +88,11 @@ class SeriaController:
 
         self.add_config('gamepath', gamepath)
         self.text = _load_text(gamepath)
+
+    def is_profile(self):
+        self.logger.info('is_profile')
+
+        return self.seria_node.get_attribute('m_classname') == 'Profile'
 
 
 def _decrypt_seria(filepath):
