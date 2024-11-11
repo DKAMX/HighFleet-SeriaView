@@ -1,6 +1,7 @@
 from ast import literal_eval
 from enum import Enum
 from seria import SeriaNode
+from localization import L10N
 
 ITEM_AMMO_CODE = '2199023255555'
 FUEL_CAPACITY = {'MDL_FUEL_01': '35000', 'MDL_FUEL_02': '400000'}
@@ -153,7 +154,7 @@ class NpcModel:
 
 class ProfileModel:
     def __init__(self):
-        self.seria: SeriaNode = None
+        self.seria_node: SeriaNode = None
         self.unique_ids: set = None
         self.ship_unlocks: list = None
         self.scores: int = 0
@@ -164,7 +165,7 @@ class ProfileModel:
         self.ammo_list: list = None
 
     def load(self, seria: SeriaNode):
-        self.seria = seria
+        self.seria_node = seria
         self.unique_ids = get_unique_ids(seria)
         self.ship_unlocks = get_ship_unlocks(seria)
         self.scores = int(seria.get_attribute('m_scores') or 0)
@@ -176,6 +177,16 @@ class ProfileModel:
             n.has_attribute('m_tarkhan') or n.has_attribute('m_joined')))]
         self.ammo_list = [AmmoModel(ammo)
                           for ammo in seria.get_nodes_by_class('Item')]
+
+    def clear(self):
+        self.seria_node = None
+        self.unique_ids = None
+        self.ship_unlocks = None
+        self.scores = 0
+        self.cash = 0
+        self.player_fleets = None
+        self.npcs = None
+        self.ammo_list = None
 
     def get_ammo_list(self):
         if self.ammo_list is None:
@@ -219,20 +230,20 @@ class ProfileModel:
                 # new ammo
                 new_ammo = AmmoModel.from_index(index, amount)
                 self.ammo_list.append(new_ammo)
-                self.seria.put_node_before_index(new_ammo.seria, -1)
+                self.seria_node.put_node_before_index(new_ammo.seria, -1)
 
                 return True
         except ValueError:
             return False
 
     def get_bonus(self):
-        if self.seria is None:
+        if self.seria_node is None:
             return
 
         return str(self.scores)
 
     def set_bonus(self, bonus: str):
-        if self.seria is None:
+        if self.seria_node is None:
             return
 
         try:
@@ -243,24 +254,25 @@ class ProfileModel:
             return
 
         # has_attribute check for first callback triggered in initialize the entry value
-        if bonus_value == 0 and self.seria.has_attribute('m_scores'):
-            self.seria.del_attribute('m_scores')
+        if bonus_value == 0 and self.seria_node.has_attribute('m_scores'):
+            self.seria_node.del_attribute('m_scores')
         else:
-            if self.seria.has_attribute('m_scores'):
-                self.seria.set_attribute('m_scores', bonus)
+            if self.seria_node.has_attribute('m_scores'):
+                self.seria_node.set_attribute('m_scores', bonus)
             else:
-                self.seria.put_attribute_after('m_scores', bonus, 'm_savetime')
+                self.seria_node.put_attribute_after(
+                    'm_scores', bonus, 'm_savetime')
 
         self.scores = bonus
 
     def get_money(self):
-        if self.seria is None:
+        if self.seria_node is None:
             return
 
         return str(self.cash)
 
     def set_money(self, money: str):
-        if self.seria is None:
+        if self.seria_node is None:
             return
 
         try:
@@ -270,46 +282,47 @@ class ProfileModel:
         except ValueError:
             return
 
-        if money_value == 0 and self.seria.has_attribute('m_cash'):
-            self.seria.remove_attribute('m_cash')
+        if money_value == 0 and self.seria_node.has_attribute('m_cash'):
+            self.seria_node.remove_attribute('m_cash')
         else:
-            if self.seria.has_attribute('m_cash'):
-                self.seria.set_attribute('m_cash', money)
+            if self.seria_node.has_attribute('m_cash'):
+                self.seria_node.set_attribute('m_cash', money)
             else:
-                self.seria.put_attribute_before('m_cash', money, 'm_npc_index')
+                self.seria_node.put_attribute_before(
+                    'm_cash', money, 'm_npc_index')
 
         self.cash = money
 
     def get_worldview(self, attribute: str):
-        if self.seria is None:
+        if self.seria_node is None:
             return
 
-        return self.seria.get_attribute(f'm_char_{attribute}_val') or '0'
+        return self.seria_node.get_attribute(f'm_char_{attribute}_val') or '0'
 
     def set_worldview(self, attribute: str, value: str):
-        if self.seria is None:
+        if self.seria_node is None:
             return
 
         name_value_disaplay = f'm_char_{attribute}'
         name_value = f'm_char_{attribute}_val'
         value_disaplay = str(int(float(value)))
-        if self.seria.has_attribute(name_value_disaplay):
-            self.seria.set_attribute(name_value_disaplay, value_disaplay)
-            self.seria.set_attribute(name_value, value)
+        if self.seria_node.has_attribute(name_value_disaplay):
+            self.seria_node.set_attribute(name_value_disaplay, value_disaplay)
+            self.seria_node.set_attribute(name_value, value)
         else:
-            self.seria.put_attribute_after(
+            self.seria_node.put_attribute_after(
                 name_value_disaplay, value, 'm_radio_duration_base')
-            self.seria.put_attribute_after(
+            self.seria_node.put_attribute_after(
                 name_value, value_disaplay, name_value_disaplay)
 
     def unlock_all_ships(self):
-        if self.seria is None:
+        if self.seria_node is None:
             return
 
         for i, unlock in enumerate(self.ship_unlocks):
             self.ship_unlocks[i] = (unlock[0], True)
 
-        self.seria.set_attribute(
+        self.seria_node.set_attribute(
             'm_unlocks', [f'{name}|{int(unlocked)}' for name, unlocked in self.ship_unlocks])
 
 
@@ -337,3 +350,41 @@ def get_ship_unlocks(seria: SeriaNode) -> list:
         ship_unlocks.append((unlock[0], bool(int(unlock[1]))))
 
     return ship_unlocks
+
+
+def get_ship_name(node: SeriaNode):
+    '''Get the ship name from a ship node
+    @return: The ship name, or None if the node is not a ship'''
+
+    try:
+        frame = node.get_node_by_class('Frame')
+        body = frame.get_node_if(
+            lambda n: n.get_attribute('m_name') == 'COMBRIDGE')
+        creature = body.get_node_by_class('Creature')
+        return creature.get_attribute('m_ship_name')
+    except:
+        return None
+
+
+def get_node_text(node: SeriaNode):
+    classname = node.get_attribute('m_classname')
+    name = node.get_attribute('m_name')
+    codename = node.get_attribute('m_codename')
+    fullname = node.get_attribute('m_fullname')
+
+    if classname == 'Profile':
+        return f'{L10N().text("PROFILE")}'
+    if classname == 'Escadra':
+        return f'{L10N().text("ESCADRA")} {name}'
+    if classname == 'Location':
+        return f'{L10N().text("LOCATION")} {name} ({codename})'
+    if classname == 'NPC':
+        return f'NPC {fullname}' if str.isalpha(name) and fullname else 'NPC'
+    if classname == 'Node':
+        ship_name = get_ship_name(node)
+        return 'Node' if ship_name is None else f'Node {ship_name}'
+    if classname == 'Body':
+        return f'Body {name}' if name else 'Body'
+    if classname == 'Item':
+        return f'{L10N().text("ITEM")}'
+    return classname
