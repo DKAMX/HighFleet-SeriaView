@@ -388,3 +388,17 @@ def get_node_text(node: SeriaNode):
     if classname == 'Item':
         return f'{L10N().text("ITEM")}'
     return classname
+
+
+def get_node_attr_text(node: SeriaNode) -> str:
+    '''Get the attributes of a node as a list of tuples
+    @return: a list of key-value pairs in text format'''
+
+    output = ''
+    for key, value in node.get_attributes().items():
+        if isinstance(value, list):
+            for v in value:
+                output += f'{key}={v}\n'
+        else:
+            output += f'{key}={value}\n'
+    return output
