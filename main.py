@@ -2,8 +2,10 @@ import logging
 from tkinter import *
 from localization import L10N
 from seria_controller import *
+from view import FrameView
 from view_settings import SettingsFrameView
 from view_basic import BasicFrameView
+from view_tree import TreeFrameView
 from view_utility import *
 
 __author__ = 'Max'
@@ -34,6 +36,8 @@ class SeriaView:
         self._make_menu()
         self.frameview_list.append(SettingsFrameView(self, self.controller))
         self.frameview_list.append(BasicFrameView(self, self.controller))
+        self.frameview_list.append(FrameView(self, self.controller))
+        self.frameview_list.append(TreeFrameView(self, self.controller))
 
         if self.controller.get_gamepath() == '':
             self.var_viewmode.set(VIEWMODE_SETTINGS)
@@ -74,8 +78,8 @@ class SeriaView:
         menu_view = Menu(menu, tearoff=False)
         menu_view.add_radiobutton(label=L10N().text(
             'VIEW_BASIC'), value=VIEWMODE_BASIC, variable=self.var_viewmode)
-        menu_view.add_radiobutton(label=L10N().text(
-            'VIEW_MAP'), value=VIEWMODE_MAP, variable=self.var_viewmode)
+        # menu_view.add_radiobutton(label=L10N().text(
+        #     'VIEW_MAP'), value=VIEWMODE_MAP, variable=self.var_viewmode)
         menu_view.add_radiobutton(label=L10N().text(
             'VIEW_TREE'), value=VIEWMODE_TREE, variable=self.var_viewmode)
         menu.add_cascade(label=L10N().text('VIEW'), menu=menu_view)
@@ -111,6 +115,10 @@ class SeriaView:
         self.root.title(f'{filepath} - SeriaView v{__version__}')
 
         self._update_view()
+        if self.controller.is_profile():
+            self.var_viewmode.set(VIEWMODE_BASIC)
+        else:
+            self.var_viewmode.set(VIEWMODE_TREE)
 
     def _open_profile(self, index):
         self.logger.info(f'_open_profile: {index}')
@@ -122,6 +130,7 @@ class SeriaView:
         self.root.title(f'{filepath} - SeriaView v{__version__}')
 
         self._update_view()
+        self.var_viewmode.set(VIEWMODE_BASIC)
 
     def _save_file(self):
         self.logger.info('_save_file')
