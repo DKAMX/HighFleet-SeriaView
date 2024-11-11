@@ -27,6 +27,9 @@ class BasicFrameView(FrameView):
         self.frame.add(self._make_player_frame(), text=L10N().text('PLAYER'))
 
     def enable(self):
+        if not self.controller.is_profile():
+            return
+
         for entry, _, editable, _ in self.ent_seria_attributes:
             if editable:
                 entry.config(state=NORMAL)
@@ -42,6 +45,9 @@ class BasicFrameView(FrameView):
         self.ent_ammo_amount.config(state='readonly')
 
     def update(self):
+        if not self.controller.is_profile():
+            return
+
         for _, variable, _, callback in self.ent_seria_attributes:
             variable.set(callback())
         for _, variable, callback in self.sc_seria_attributes:
