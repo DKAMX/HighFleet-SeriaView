@@ -29,6 +29,7 @@ class SettingsFrameView(FrameView):
         self.logger.info(f'_on_gamepath_change: {args}')
 
         self.controller.set_gamepath(self.var_gamepath.get())
+        self.mainview._set_menu_file_state()
 
     def _set_gamepath(self):
         self.logger.info('_set_gamepath')

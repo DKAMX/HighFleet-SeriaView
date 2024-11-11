@@ -9,6 +9,8 @@ from view_utility import *
 __author__ = 'Max'
 __version__ = '0.3.0'
 
+# logging.basicConfig(level=logging.INFO)
+
 
 class SeriaView:
     def __init__(self, controller: SeriaController):
@@ -36,6 +38,7 @@ class SeriaView:
         if self.controller.get_gamepath() == '':
             self.var_viewmode.set(VIEWMODE_SETTINGS)
         self._on_viewmode_change()  # set the initial view
+        self._set_menu_file_state()
 
         mainloop()
 
@@ -66,7 +69,7 @@ class SeriaView:
         self.menu_file.add_command(label=L10N().text(
             'SETTINGS'), command=lambda: self.var_viewmode.set(VIEWMODE_SETTINGS))
         menu.add_cascade(label=L10N().text('FILE'),
-                         menu=self.menu_file, command=self._set_menu_file_state)
+                         menu=self.menu_file)
 
         menu_view = Menu(menu, tearoff=False)
         menu_view.add_radiobutton(label=L10N().text(
@@ -87,6 +90,8 @@ class SeriaView:
         self.frameview_list[self.var_viewmode.get()].show()
 
     def _set_menu_file_state(self):
+        self.logger.info('_set_menu_file_state')
+
         if self.controller.text is None:
             self.menu_file.entryconfig(1, state=DISABLED)
         else:
