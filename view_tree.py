@@ -1,6 +1,7 @@
 import logging
 from tkinter import *
 from tkinter import scrolledtext, ttk
+from localization import L10N
 from seria_model import *
 from seria_controller import *
 from view import FrameView
@@ -20,7 +21,7 @@ class TreeFrameView(FrameView):
     def update(self):
         def append_children(node: SeriaNode, parent_id: str):
             node_id = self.tree_seria.insert(
-                parent_id, 'end', text=get_node_text(node))
+                parent_id, 'end', text=self.controller.get_node_text(node))
             for child in node.get_nodes():
                 append_children(child, node_id)
 
@@ -29,7 +30,7 @@ class TreeFrameView(FrameView):
         # populate tree with seria nodes
         root_node = self.controller.seria_node
         root_id = self.tree_seria.insert(
-            '', 'end', text=get_node_text(root_node))
+            '', 'end', text=self.controller.get_node_text(root_node))
         for node in root_node.get_nodes():
             append_children(node, root_id)
 
@@ -83,6 +84,11 @@ class TreeFrameView(FrameView):
         parent_iid = self.tree_seria.parent(iid)
 
         node = self.controller.seria_node
+
+        # fix for _on_tree_select triggered after clear
+        if node is None:
+            return
+
         # if selected node is root
         if parent_iid == '':
             self._update_text_detail(get_node_attr_text(node))
