@@ -6,7 +6,9 @@
 
 ## 项目组成
 
-项目主要由三个部分组成：**Seria Python模块**，**命令行工具**以及**桌面端程序** （SeriaView）。
+项目主要由三个部分组成：**Seria Python模块**，**命令行工具**以及**桌面端程序** （SeriaView）。  
+
+[桌面端程序的说明](README.txt)
 
 ### Seria Python 模块
 
@@ -34,6 +36,7 @@ Seria 文件教程：
 - [Seria 存档入门](docs/Introduction%20to%20Seria%20profile%20structure.zh-cn.md)
 - [Seria Lab: add a new ship](docs/Seria%20Lab%20-%20add%20a%20new%20ship.ipynb)
 - [Seria Lab: add a new ship (part 2)](docs/Seria%20Lab%20-%20add%20a%20new%20ship%20part2.ipynb)
+- [Seria Lab: add a new part to inventory](docs/SeriaLab%20-%20add%20part%20to%20inventory.ipynb)
 
 Seria 模块教程：
 

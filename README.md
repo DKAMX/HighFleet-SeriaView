@@ -6,7 +6,9 @@ A parser that aims to visualize the structure of a seria file for the game HighF
 
 ## Project composition
 
-The project consists of three parts: **Seria Python module**, **Command-line tool** and **Desktop program** (SeriaView).
+The project consists of three parts: **Seria Python module**, **Command-line tool** and **Desktop program** (SeriaView).  
+
+[README of Desktop program](README.txt)
 
 ### Seria Python module
 
@@ -34,6 +36,7 @@ Seria file tutorial:
 - [Introduction to Seria profile](docs/Introduction%20to%20Seria%20profile%20structure.md)
 - [Seria Lab: add a new ship](docs/Seria%20Lab%20-%20add%20a%20new%20ship.ipynb)
 - [Seria Lab: add a new ship (part 2)](docs/Seria%20Lab%20-%20add%20a%20new%20ship%20part2.ipynb)
+- [Seria Lab: add a new part to inventory](docs/SeriaLab%20-%20add%20part%20to%20inventory.ipynb)
 
 Seria module tutorial:
 
