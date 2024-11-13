@@ -1,7 +1,7 @@
 from ast import literal_eval
+from copy import deepcopy
 from enum import Enum
 from seria import SeriaNode
-from localization import L10N
 
 ITEM_AMMO_CODE = '2199023255555'
 FUEL_CAPACITY = {'MDL_FUEL_01': '35000', 'MDL_FUEL_02': '400000'}
@@ -105,14 +105,17 @@ class FleetModel:
         self.seria = seria
         self.ships = seria.filter_nodes(
             lambda n: n.header == 'm_children=7')
+        self.inventory = seria.get_node_if(
+            lambda n: n.header == 'm_inventory=7')
 
+        self.name = seria.get_attribute('m_name')
         total = literal_eval(self.seria.get_attribute('m_tele_fuel_total'))
         capacity = literal_eval(
             self.seria.get_attribute('m_tele_fuel_capacity'))
         self.fuel_pct = int(total / capacity * 100)
 
-        x = int(self.seria.get_attribute('m_position.x') or 0)
-        y = int(self.seria.get_attribute('m_position.y') or 0)
+        x = float(self.seria.get_attribute('m_position.x') or 0)
+        y = float(self.seria.get_attribute('m_position.y') or 0)
         self.position = (x, y)
 
     def add_fuel(self):
@@ -133,6 +136,63 @@ class FleetModel:
                 'm_position.y', str(y), 'm_position.x')
 
         self.position = (x, y)
+
+    def get_items(self):
+        '''Get the items in the inventory
+        @return: a list of tuples containing the item oid and count'''
+
+        items = []
+        for item in self.inventory.get_nodes():
+            oid = item.get_attribute('m_oid')
+            count = item.get_attribute('m_count') or '1'
+            items.append((oid, count))
+        return items
+
+    def get_item(self, item_oid: str):
+        '''Check if the inventory has an item with the specified oid'''
+
+        return self.inventory.get_node_if(lambda n: n.get_attribute('m_oid') == item_oid)
+
+    def set_item(self, index: int, amount: str) -> bool:
+        '''set the amount of item in the inventory, based on its appearance order'''
+
+        try:
+            amount_value = int(amount)
+            if amount_value <= 0:
+                raise ValueError('Amount must be a positive integer')
+        except ValueError:
+            return False
+
+        item = self.inventory.get_node(index)
+        if item.has_attribute('m_count'):
+            item.set_attribute('m_count', amount)
+        else:
+            item.put_attribute_after('m_count', amount, 'm_oid')
+
+        return True
+
+    def add_item(self, unique_ids: set, item_node: SeriaNode, amount: int):
+        '''Add an item to the inventory, assume the item_node is valid and has no m_count initially'''
+
+        # check if the item already exists
+        item = self.get_item(item_node.get_attribute('m_oid'))
+        if item:
+            count = item.get_attribute('m_count') or '1'
+            item.set_attribute('m_count', str(int(count) + amount))
+            return
+
+        new_id = max(unique_ids) + 1
+        unique_ids.add(new_id)
+
+        item_node_cpy = deepcopy(item_node)
+        item_node_cpy.update_attribute('m_id', str(new_id))
+        item_node_cpy.set_attribute('m_master_id',
+                                    self.inventory.get_attribute('m_id'))
+        if amount > 1:
+            item_node_cpy.set_attribute('m_count', str(amount))
+        else:
+            item_node_cpy.set_attribute('m_count', '1')
+        self.inventory.add_node(item_node_cpy)
 
 
 class NpcModel:
@@ -159,8 +219,7 @@ class ProfileModel:
         self.ship_unlocks: list = None
         self.scores: int = 0
         self.cash: int = 0
-        escadras: list = None
-        self.player_fleets: list = None
+        self.player_squadrons: list = None
         self.npcs: list = None
         self.ammo_list: list = None
 
@@ -171,8 +230,8 @@ class ProfileModel:
         self.scores = int(seria.get_attribute('m_scores') or 0)
         self.cash = int(seria.get_attribute('m_cash') or 0)
         escadras = seria.get_nodes_by_class('Escadra')
-        self.player_fleets = [FleetModel(fleet)
-                              for fleet in escadras if fleet.get_attribute('m_alignment') == '1']
+        self.player_squadrons = [FleetModel(fleet)
+                                 for fleet in escadras if fleet.get_attribute('m_alignment') == '1']
         self.npcs = [NpcModel(npc) for npc in seria.filter_nodes(lambda n: n.header == 'm_npcs=68719476739' and (
             n.has_attribute('m_tarkhan') or n.has_attribute('m_joined')))]
         self.ammo_list = [AmmoModel(ammo)
@@ -184,7 +243,7 @@ class ProfileModel:
         self.ship_unlocks = None
         self.scores = 0
         self.cash = 0
-        self.player_fleets = None
+        self.player_squadrons = None
         self.npcs = None
         self.ammo_list = None
 
@@ -315,6 +374,12 @@ class ProfileModel:
             self.seria_node.put_attribute_after(
                 name_value, value_disaplay, name_value_disaplay)
 
+    def get_squadron(self, index: int):
+        if self.player_squadrons is None:
+            return
+
+        return self.player_squadrons[index]
+
     def unlock_all_ships(self):
         if self.seria_node is None:
             return
@@ -366,30 +431,6 @@ def get_ship_name(node: SeriaNode):
         return None
 
 
-def get_node_text(node: SeriaNode):
-    classname = node.get_attribute('m_classname')
-    name = node.get_attribute('m_name')
-    codename = node.get_attribute('m_codename')
-    fullname = node.get_attribute('m_fullname')
-
-    if classname == 'Profile':
-        return f'{L10N().text("PROFILE")}'
-    if classname == 'Escadra':
-        return f'{L10N().text("ESCADRA")} {name}'
-    if classname == 'Location':
-        return f'{L10N().text("LOCATION")} {name} ({codename})'
-    if classname == 'NPC':
-        return f'NPC {fullname}' if str.isalpha(name) and fullname else 'NPC'
-    if classname == 'Node':
-        ship_name = get_ship_name(node)
-        return 'Node' if ship_name is None else f'Node {ship_name}'
-    if classname == 'Body':
-        return f'Body {name}' if name else 'Body'
-    if classname == 'Item':
-        return f'{L10N().text("ITEM")}'
-    return classname
-
-
 def get_node_attr_text(node: SeriaNode) -> str:
     '''Get the attributes of a node as a list of tuples
     @return: a list of key-value pairs in text format'''
@@ -402,3 +443,19 @@ def get_node_attr_text(node: SeriaNode) -> str:
         else:
             output += f'{key}={value}\n'
     return output
+
+
+def get_part_oid_set(node: SeriaNode) -> set:
+    '''Get oid of part that is available in the game (m_important=true)
+    @return set of oid'''
+
+    if node is None or node.get_attribute('m_classname') != 'ObjectsLibrary':
+        return
+
+    parts = set()
+    for child in node.get_nodes():
+        if child.has_attribute('m_important'):
+            parts.add(child.get_attribute('m_oid'))
+    return parts
+
+    # FIXME missing oids like ITEM_HULL
