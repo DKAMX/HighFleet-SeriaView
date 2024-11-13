@@ -399,13 +399,18 @@ class BasicFrameView(FrameView):
     def _add_node(self):
         self.logger.info('_add_node')
 
-        if self.select_obj is None:
+        if self.select_obj is None or self.select_escadra_index is None:
             return
+
         type = self.select_obj[0]
         value = self.select_obj[1]
         if type == 'ship':
-            # self.controller.profile_model.add_ship(value)
-            pass
+            squadron = self.controller.profile_model.get_squadron(
+                self.select_escadra_index)
+            squadron.add_ship(self.controller.profile_model.unique_ids,
+                              self.controller.profile_model.next_creature_id(),
+                              self.controller.get_ship_design_node(value))
+            self._update_tree_escadra()
         elif type == 'part':
             squadron = self.controller.profile_model.get_squadron(
                 self.select_escadra_index)

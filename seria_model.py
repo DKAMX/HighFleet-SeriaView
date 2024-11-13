@@ -1,4 +1,4 @@
-from ast import literal_eval
+# from ast import literal_eval
 from copy import deepcopy
 from enum import Enum
 from seria import SeriaNode
@@ -81,8 +81,8 @@ class AmmoModel:
 class ShipModel:
     def __init__(self, seria: SeriaNode):
         self.seria = seria
-        self.creature = seria.get_node_by_class(
-            'Frame').get_node(0).get_node(0)
+        self.creature = seria.get_node_by_class('Frame').get_node_if(
+            lambda n: n.get_attribute('m_name') == 'COMBRIDGE').get_node_by_class('Creature')
         self.moral = int(self.creature.get_attribute('m_moral'))
 
     def add_fuel(self):
@@ -109,19 +109,19 @@ class FleetModel:
             lambda n: n.header == 'm_inventory=7')
 
         self.name = seria.get_attribute('m_name')
-        total = literal_eval(self.seria.get_attribute('m_tele_fuel_total'))
-        capacity = literal_eval(
-            self.seria.get_attribute('m_tele_fuel_capacity'))
-        self.fuel_pct = int(total / capacity * 100)
+        # total = literal_eval(self.seria.get_attribute('m_tele_fuel_total'))
+        # capacity = literal_eval(
+        #     self.seria.get_attribute('m_tele_fuel_capacity'))
+        # self.fuel_pct = int(total / capacity * 100)
 
         x = float(self.seria.get_attribute('m_position.x') or 0)
         y = float(self.seria.get_attribute('m_position.y') or 0)
         self.position = (x, y)
 
-    def add_fuel(self):
-        for ship in self.ships:
-            ShipModel(ship).add_fuel()
-        self.fuel_pct = 100
+    # def add_fuel(self):
+    #     for ship in self.ships:
+    #         ShipModel(ship).add_fuel()
+    #     self.fuel_pct = 100
 
     def set_position(self, x: int, y: int):
         if self.seria.has_attribute('m_position.x'):
@@ -193,6 +193,31 @@ class FleetModel:
         else:
             item_node_cpy.set_attribute('m_count', '1')
         self.inventory.add_node(item_node_cpy)
+
+    def add_ship(self, unique_ids: set, next_creature_id: str, ship_node: SeriaNode):
+        '''Add a ship to the fleet, assume the ship_node is valid'''
+
+        ship_node_cpy = deepcopy(ship_node)
+
+        next_id = max(unique_ids) + 1
+        unique_ids.add(next_id)
+
+        alignment = self.seria.get_attribute('m_alignment')
+        escadra_id = self.seria.get_attribute('m_id')
+        # make new escadra index for the new ship
+        escadra_indexes = set()
+        for ship in self.ships:
+            # Frame > Body > Creature
+            creature = ship.get_node_by_class('Frame').get_node_if(
+                lambda n: n.get_attribute('m_name') == 'COMBRIDGE').get_node_by_class('Creature')
+            escadra_indexes.add(int(creature.get_attribute('m_escadra_index')))
+
+        cfg_ship_for_adding(ship_node_cpy, unique_ids,
+                            next_creature_id, alignment,
+                            escadra_id, str(max(escadra_indexes) + 1))
+
+        self.seria.put_node_after(ship_node_cpy, self.ships[-1])
+        self.ships.append(ship_node_cpy)
 
 
 class NpcModel:
@@ -380,6 +405,17 @@ class ProfileModel:
 
         return self.player_squadrons[index]
 
+    def next_creature_id(self):
+        '''Get the next creature id for adding a new ship, will increment the id while return'''
+        if self.seria_node is None:
+            return None
+
+        id = self.seria_node.get_attribute('nextCreatureId')
+        print(id)
+        self.seria_node.set_attribute('nextCreatureId', str(int(id) + 1))
+
+        return id
+
     def unlock_all_ships(self):
         if self.seria_node is None:
             return
@@ -459,3 +495,81 @@ def get_part_oid_set(node: SeriaNode) -> set:
     return parts
 
     # FIXME missing oids like ITEM_HULL
+
+
+def cfg_ship_for_adding(ship_node: SeriaNode, unique_ids: set, next_creature_id: str, alignment: str, escadra_id: str, escadra_index: str):
+    next_id = max(unique_ids) + 1
+    unique_ids.add(next_id)
+
+    # update ship design with needed attributes obtained from profile
+    ship_node.header = 'm_children=7'
+    ship_node.put_attribute_after('m_state', '2', 'm_name')
+    ship_node.put_attribute_after('m_master_id', escadra_id, 'm_state')
+
+    # m_id for root Node node of the ship
+    ship_node.update_attribute('m_id', str(next_id))
+
+    # update all depth 2 nodes with new m_id
+    for node in ship_node.get_nodes():
+        old_id = node.get_attribute('m_id')
+
+        next_id += 1
+        unique_ids.add(next_id)
+        node.update_attribute('m_id', str(next_id))
+        # update all joint nodes with new m_id reference
+        for node in ship_node.get_nodes():
+            node.update_attribute_by_value(old_id, str(next_id))
+
+    ship_frame = ship_node.get_node_by_class('Frame')
+
+    next_id += 1
+    unique_ids.add(next_id)
+    ship_frame.update_attribute('m_id', str(next_id))
+
+    # update all depth 3 nodes in frame node with new m_id
+    for node in ship_frame.get_nodes():
+        old_id = node.get_attribute('m_id')
+
+        next_id += 1
+        unique_ids.add(next_id)
+        node.update_attribute('m_id', str(next_id))
+
+        # update all joint nodes with new m_id reference
+        for node in ship_node.get_nodes():
+            node.update_attribute_by_value(old_id, str(next_id))
+
+    ship_creature = ship_frame.get_node_if(lambda n: n.get_attribute(
+        'm_name') == 'COMBRIDGE').get_node_by_class('Creature')
+
+    next_id += 1
+    unique_ids.add(next_id)
+    old_creature_id = ship_creature.get_attribute('m_id')
+    ship_creature.update_attribute('m_id', str(next_id))
+    ship_creature.set_attribute('m_owner_id', str(next_id))
+    ship_node.update_attribute_by_value(old_creature_id, str(next_id))
+
+    ship_creature.set_attribute('creatureId', next_creature_id)
+
+    ship_creature.put_attribute_after('m_escadra.id', escadra_id,
+                                      'm_health_lock')
+    ship_creature.put_attribute_after('m_escadra_index', escadra_index,
+                                      'm_escadra.id')
+    ship_creature.put_attribute_after('m_alignment', alignment,
+                                      'm_playable')
+    ship_creature.put_attribute_after('m_tarkhan', 'DAUD',  # enemy don't have tarkhan
+                                      'm_alignment')
+    ship_creature.put_attribute_after('m_radiation_extra', '1',
+                                      'm_tarkhan')
+
+    crew_capacity = ship_creature.get_attribute(
+        'm_tele_crew_capacity')
+    ship_creature.put_attribute_before('m_tele_crew_total', crew_capacity,
+                                       'm_tele_crew_capacity')
+    ship_creature.put_attribute_before('m_moral', '10',
+                                       'creatureId')
+    ship_creature.put_attribute_before('m_rad_seekness_timer', '5',
+                                       'shipLoadTime')
+    ship_creature.put_attribute_before('shipLoadTime', '0',
+                                       'm_tele_fuel_on')
+
+    ship_creature.set_attribute('wasAddedToPlayerEscadra', 'true')

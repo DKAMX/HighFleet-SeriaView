@@ -30,6 +30,7 @@ class SettingsFrameView(FrameView):
 
         self.controller.set_gamepath(self.var_gamepath.get())
         self.mainview._set_menu_file_state()
+        self.mainview._update_basicview_static()
 
     def _set_gamepath(self):
         self.logger.info('_set_gamepath')

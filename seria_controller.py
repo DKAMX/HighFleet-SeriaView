@@ -24,6 +24,7 @@ class SeriaController:
         self.text: dict = _load_text(self.config.get('gamepath', ''))
         self.ship_designs: dict = _load_ship_designs(
             self.config.get('gamepath', ''))
+        self.ship_design_nodes: dict = dict()
         self.oid_set: set = _load_part_oid(self.config.get('gamepath', ''))
         self.parts: dict = _load_parts(self.config.get('gamepath', ''),
                                        self.oid_set)
@@ -133,6 +134,19 @@ class SeriaController:
             return f'{L10N().text("ITEM")}'
         return classname
 
+    def get_ship_design_node(self, ship_name: str):
+        '''Get ship design node by ship name'''
+
+        if ship_name in self.ship_design_nodes:
+            return self.ship_design_nodes[ship_name]
+
+        filepath = self.ship_designs.get(ship_name, None)
+        if filepath is None:
+            return None
+        node = load(filepath)
+        self.ship_design_nodes[ship_name] = node  # caching
+        return node
+
     def is_profile(self):
         self.logger.info('is_profile')
 
@@ -212,6 +226,9 @@ def _load_parts(gamepath: str, oid_set: set):
 
     filepath = gamepath + '/Libraries/parts.seria'
     parts_node = load(filepath)
+
+    if parts_node is None:
+        return None
 
     parts_map = dict()
     for node in parts_node.get_nodes():

@@ -11,7 +11,7 @@ from view_utility import *
 __author__ = 'Max'
 __version__ = '0.3.0'
 
-# logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO)
 
 
 class SeriaView:
@@ -22,8 +22,8 @@ class SeriaView:
 
         self.root = Tk()
         self.root.title(f'SeriaView v{__version__}')
-        self.root.geometry('640x480')
-        self.root.minsize(640, 480)
+        self.root.geometry('720x480')
+        self.root.minsize(720, 480)
 
         # UI components
         self.menu_file: Menu = None
@@ -43,6 +43,7 @@ class SeriaView:
             self.var_viewmode.set(VIEWMODE_SETTINGS)
         self._on_viewmode_change()  # set the initial view
         self._set_menu_file_state()
+        self._update_basicview_static()
 
         mainloop()
 
@@ -101,6 +102,12 @@ class SeriaView:
         else:
             self.menu_file.entryconfig(1, state=NORMAL)
 
+    def _update_basicview_static(self):
+        self.logger.info('_update_basicview_static')
+
+        self.frameview_list[VIEWMODE_BASIC].update_tree_ship()
+        self.frameview_list[VIEWMODE_BASIC].update_tree_parts()
+
     def _open_file(self):
         self.logger.info('_open_file')
 
@@ -148,6 +155,7 @@ class SeriaView:
         self.logger.info('_close_file')
 
         self.controller.seria_node = None
+        self.controller.profile_model.clear()
         self.root.title(f'SeriaView v{__version__}')
 
         self._clear_view()
