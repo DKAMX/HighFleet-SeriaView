@@ -18,6 +18,10 @@ class TreeFrameView(FrameView):
 
         self._make_treeview()
 
+    def show(self):
+        super().show()
+        self.update()  # update treeview incase modification from other view
+
     def update(self):
         def append_children(node: SeriaNode, parent_id: str):
             node_id = self.tree_seria.insert(
