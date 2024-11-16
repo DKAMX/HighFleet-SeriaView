@@ -117,12 +117,13 @@ class SeriaController:
             return f'{L10N().text("LOCATION")} {name} ({codename})'
         if classname == 'NPC':
             output = 'NPC'
-            fullname = node.get_attribute('m_fullname')
-            if fullname:
-                output += f' {fullname}'
-            location = node.get_attribute('m_location')
-            if location:
-                output += f' {location}'
+            if not name.isdigit():
+                fullname = node.get_attribute('m_fullname')
+                if fullname:
+                    output += f' {fullname}'
+                location = node.get_attribute('m_location')
+                if location:
+                    output += f' ({location})'
             return output
         if classname == 'Node':
             ship_name = get_ship_name(node)
